@@ -22,6 +22,13 @@ pnpm store prune
 echo "📦 Installing dependencies..."
 pnpm install --frozen-lockfile --no-optional
 
+# 4.1. Add missing @hapi/boom dependency for bot
+echo "📦 Adding missing @hapi/boom dependency..."
+cd apps/bot
+pnpm add "@hapi/boom@^10.0.1"
+pnpm add "@types/hapi__boom@^9.0.4" --save-dev
+cd ../..
+
 # 5. Build packages in correct order
 echo "🔨 Building packages in dependency order..."
 
