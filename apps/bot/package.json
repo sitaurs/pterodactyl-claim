@@ -11,7 +11,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@wa-ptero-claim/shared-types": "file:../../packages/shared-types",
+    "@wa-ptero-claim/shared-types": "workspace:*",
     "@whiskeysockets/baileys": "^6.7.18",
     "axios": "^1.11.0",
     "dotenv": "^16.6.1",

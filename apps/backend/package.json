@@ -14,8 +14,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@wa-ptero-claim/shared-types": "file:../../packages/shared-types",
-    "@wa-ptero-claim/validation-schemas": "file:../../packages/validation-schemas",
+    "@wa-ptero-claim/shared-types": "workspace:*",
+    "@wa-ptero-claim/validation-schemas": "workspace:*",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "cors": "^2.8.5",

@@ -27,10 +27,10 @@ importers:
   apps/backend:
     dependencies:
       '@wa-ptero-claim/shared-types':
-        specifier: file:../../packages/shared-types
+        specifier: workspace:*
         version: link:../../packages/shared-types
       '@wa-ptero-claim/validation-schemas':
-        specifier: file:../../packages/validation-schemas
+        specifier: workspace:*
         version: link:../../packages/validation-schemas
       axios:
         specifier: ^1.6.5
@@ -94,7 +94,7 @@ importers:
   apps/bot:
     dependencies:
       '@wa-ptero-claim/shared-types':
-        specifier: file:../../packages/shared-types
+        specifier: workspace:*
         version: link:../../packages/shared-types
       '@whiskeysockets/baileys':
         specifier: ^6.7.18
@@ -137,10 +137,10 @@ importers:
   apps/frontend:
     dependencies:
       '@wa-ptero-claim/shared-types':
-        specifier: file:../../packages/shared-types
+        specifier: workspace:*
         version: link:../../packages/shared-types
       '@wa-ptero-claim/validation-schemas':
-        specifier: file:../../packages/validation-schemas
+        specifier: workspace:*
         version: link:../../packages/validation-schemas
       axios:
         specifier: ^1.6.5
@@ -4675,7 +4675,7 @@ snapshots:
       eslint: 9.32.0(jiti@2.5.1)
       eslint-import-resolver-node: 0.3.9
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint@9.32.0(jiti@2.5.1)))(eslint@9.32.0(jiti@2.5.1))
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint@9.32.0(jiti@2.5.1)))(eslint@9.32.0(jiti@2.5.1)))(eslint@9.32.0(jiti@2.5.1))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1)(eslint@9.32.0(jiti@2.5.1))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.32.0(jiti@2.5.1))
       eslint-plugin-react: 7.37.5(eslint@9.32.0(jiti@2.5.1))
       eslint-plugin-react-hooks: 5.2.0(eslint@9.32.0(jiti@2.5.1))
@@ -4705,7 +4705,7 @@ snapshots:
       tinyglobby: 0.2.14
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint@9.32.0(jiti@2.5.1)))(eslint@9.32.0(jiti@2.5.1)))(eslint@9.32.0(jiti@2.5.1))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1)(eslint@9.32.0(jiti@2.5.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -4720,7 +4720,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint@9.32.0(jiti@2.5.1)))(eslint@9.32.0(jiti@2.5.1)))(eslint@9.32.0(jiti@2.5.1)):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@6.21.0(eslint@9.32.0(jiti@2.5.1))(typescript@5.9.2))(eslint-import-resolver-typescript@3.10.1)(eslint@9.32.0(jiti@2.5.1)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
