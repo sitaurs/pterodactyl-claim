@@ -32,27 +32,21 @@ export class WhatsAppBot {
       const { state, saveCreds } = await useMultiFileAuthState(this.authStateDir);
       
       // Create WhatsApp socket
+      const silentLogger: any = {
+        level: 'silent',
+        child: () => silentLogger,
+        info: () => {},
+        error: () => {},
+        warn: () => {},
+        debug: () => {},
+        trace: () => {},
+        fatal: () => {}
+      };
+
       this.socket = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        logger: {
-          level: 'silent', // Suppress Baileys logs
-          child: () => ({
-            level: 'silent',
-            info: () => {},
-            error: () => {},
-            warn: () => {},
-            debug: () => {},
-            trace: () => {},
-            fatal: () => {}
-          }),
-          info: () => {},
-          error: () => {},
-          warn: () => {},
-          debug: () => {},
-          trace: () => {},
-          fatal: () => {}
-        }
+        logger: silentLogger
       });
 
       // Setup event handlers

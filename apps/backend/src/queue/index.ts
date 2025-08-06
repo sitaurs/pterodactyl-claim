@@ -6,8 +6,7 @@ import { logger } from '../utils/logger';
 
 // Redis connection for queues
 const redis = new IORedis(config.REDIS_URL, {
-  maxRetriesPerRequest: 3,
-  retryDelayOnFailover: 100
+  maxRetriesPerRequest: 3
 });
 
 // Create Claim Queue
@@ -154,11 +153,11 @@ export async function getQueueStats(): Promise<{
     const [createStats, deleteStats] = await Promise.all([
       createClaimQueue.getJobCounts('waiting', 'active', 'completed', 'failed'),
       deleteServerQueue.getJobCounts('waiting', 'active', 'completed', 'failed')
-    ]);
-    
+    ]) as [Record<string, number>, Record<string, number>];
+
     return {
-      createClaim: createStats,
-      deleteServer: deleteStats
+      createClaim: createStats as any,
+      deleteServer: deleteStats as any
     };
   } catch (error) {
     logger.error('Failed to get queue stats', { error: error.message });
@@ -211,14 +210,6 @@ createClaimQueue.on('error', (error) => {
 
 deleteServerQueue.on('error', (error) => {
   logger.error('Delete server queue error', { error: error.message });
-});
-
-createClaimQueue.on('stalled', (jobId) => {
-  logger.warn('Create claim job stalled', { job_id: jobId });
-});
-
-deleteServerQueue.on('stalled', (jobId) => {
-  logger.warn('Delete server job stalled', { job_id: jobId });
 });
 
 logger.info('Queue management initialized', {

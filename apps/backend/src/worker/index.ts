@@ -43,7 +43,7 @@ process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
 // Unhandled promise rejection handler
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason: any, promise) => {
   logger.error('Unhandled promise rejection in worker', { 
     reason: reason.toString(),
     promise: promise.toString()
