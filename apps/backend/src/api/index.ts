@@ -120,7 +120,7 @@ process.on('SIGINT', async () => {
 });
 
 // Unhandled promise rejection handler
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason: any, promise) => {
   logger.error('Unhandled promise rejection', { 
     reason: reason.toString(),
     promise: promise.toString()

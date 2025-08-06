@@ -125,16 +125,16 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
-        {claimState.state === 'IDLE' ? (
-          <ClaimForm 
-            onSubmit={handleSubmitClaim}
-            isSubmitting={claimState.state === 'SUBMITTING'}
-          />
-        ) : (
-          <StatusDisplay
-            claimId={claimState.claimId || ''}
-            isPolling={isPolling}
-            pollAttempts={pollAttempts}
+          {claimState.state === 'IDLE' || claimState.state === 'SUBMITTING' ? (
+            <ClaimForm
+              onSubmit={handleSubmitClaim}
+              isSubmitting={claimState.state === 'SUBMITTING'}
+            />
+          ) : (
+            <StatusDisplay
+              claimId={claimState.claimId || ''}
+              isPolling={isPolling}
+              pollAttempts={pollAttempts}
             error={claimState.error}
             onReset={handleReset}
           />

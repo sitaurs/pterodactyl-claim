@@ -39,7 +39,7 @@ export class BotRPCService {
       return result;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        const status = error.response?.status;
+        const status = error.response?.status ?? 0;
         const message = error.response?.data?.error || error.message;
         
         logger.error('Bot RPC member check failed', {

@@ -11,8 +11,7 @@ import { alertService } from '../services/AlertService';
 
 // Redis connection for BullMQ
 const redis = new IORedis(config.REDIS_URL, {
-  maxRetriesPerRequest: 3,
-  retryDelayOnFailover: 100
+  maxRetriesPerRequest: 3
 });
 
 const claimsRepo = new ClaimsRepository();
@@ -147,8 +146,8 @@ export const createClaimWorker = new Worker(
   {
     connection: redis,
     concurrency: 2, // Process 2 claims concurrently
-    removeOnComplete: 10,
-    removeOnFail: 50
+    removeOnComplete: { count: 10 },
+    removeOnFail: { count: 50 }
   }
 );
 
@@ -239,8 +238,8 @@ export const deleteServerWorker = new Worker(
   {
     connection: redis,
     concurrency: 1, // Process deletions sequentially
-    removeOnComplete: 10,
-    removeOnFail: 50
+    removeOnComplete: { count: 10 },
+    removeOnFail: { count: 50 }
   }
 );
 
@@ -321,11 +320,11 @@ async function handleClaimFailure(
   failureReason: string
 ): Promise<void> {
   // Update claim status
-  await claimsRepo.updateClaim(claim.claim_id, {
-    status: 'failed',
-    failure_code: failureCode,
-    failure_reason: failureReason
-  });
+    await claimsRepo.updateClaim(claim.claim_id, {
+      status: 'failed',
+      failure_code: failureCode as any,
+      failure_reason: failureReason
+    });
 
   // Send alert
   await alertService.sendFailureAlert({
