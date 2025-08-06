@@ -1,0 +1,2044 @@
+Dokumentasi API Pterodactyl (Client, Application,
+& WebSocket)
+Base URL dan Otentikasi API
+Base URL API:
+- Client API: https://<domain-panel-Anda>/api/client
+
+1
+
+- Application API: https://<domain-panel-Anda>/api/application
+- WebSocket API:
+real-time)
+
+1
+
+wss://<alamat-node>:8080/api/servers/{server-uuid}/ws
+
+(untuk koneksi
+
+1
+
+Metode Otentikasi: Semua request ke Pterodactyl API harus menggunakan Bearer Token pada header
+Authorization 2 . Terdapat dua jenis API key:
+• Client API Key (prefix ptlc_ ): Dibuat oleh user melalui panel ( /account/api ). Hanya memiliki
+akses ke resource server milik user tersebut 3 4 .
+• Application API Key (prefix ptla_ ): Dibuat oleh admin melalui panel admin ( /admin/api ).
+Memiliki akses administratif penuh ke seluruh panel (gunakan dengan hati-hati)
+
+5
+
+4
+
+.
+
+Header yang diperlukan:
+- Authorization: Bearer <API_KEY> – API key dengan prefix sesuai (ptlc_ untuk Client, ptla_ untuk
+Application) 6 .
+- Accept: Application/vnd.pterodactyl.v1+json – Versi API (v1) dan format JSON
+
+7
+
+.
+
+- Content-Type: application/json – Untuk request dengan body JSON (misal POST/PUT)
+
+8
+
+.
+
+Contoh request terautentikasi (Client API):
+
+curl "https://your-panel.com/api/client" \
+-H "Authorization: Bearer ptlc_1234567890abcdef" \
+-H "Accept: Application/vnd.pterodactyl.v1+json" \
+-H "Content-Type: application/json"
+9
+
+Jika token tidak valid atau tidak disertakan, API akan mengembalikan error 401 Unauthorized atau 403
+Forbidden 10 11 .
+
+1
+
+Pembatasan Rate Limit dan Header Terkait
+API Pterodactyl menerapkan rate limiting untuk mencegah penyalahgunaan dan menjaga kinerja layanan
+12 . Batas default: 240 permintaan per menit per API key (berlaku untuk Client maupun Application API)
+13 . Permintaan burst dibatasi sekitar 10 request per detik (setara dengan 600 per menit, namun window
+menit tetap 240) 14 .
+Informasi rate limit disampaikan lewat header respons:
+- X-RateLimit-Limit : Jumlah maksimum request per menit (misal 240 ) 15 .
+- X-RateLimit-Remaining : Sisa jatah request dalam window saat ini 15 .
+- X-RateLimit-Reset : Timestamp UNIX ketika window rate limit akan direset 15 .
+Jika rate limit terlewati, server akan merespons 429 Too Many Requests disertai pesan error seperti:
+
+{
+"errors": [
+{
+"code": "TooManyRequestsHttpException",
+"status": "429",
+"detail": "Too many requests, please slow down."
+}
+]
+}
+16
+
+Catatan: Batas dihitung per API key, bukan per IP 17 . Jika Anda membutuhkan throughput lebih tinggi,
+pertimbangkan untuk: mengoptimalkan request, memanfaatkan cache, atau menghubungi dukungan
+apabila benar-benar diperlukan secara sah 18 . Selalu periksa header X-RateLimit-Remaining dan
+implementasikan retry dengan jeda (exponential backoff) bila menerima status 429 19
+
+20 .
+
+Format Respons API dan Fitur Umum (Filtering, Pagination,
+Include)
+Semua respons API Pterodactyl berformat JSON dengan struktur konsisten. Dua bentuk utama: objek
+tunggal atau koleksi.
+• Objek Tunggal: Respons untuk mengambil satu resource berisi properti object (tipe resource)
+dan attributes (data detail). Contoh:
+
+{
+"object": "server",
+
+2
+
+"attributes": { ... }
+}
+Field attributes memuat isi data sebenarnya 21 .
+• Koleksi (List): Respons untuk daftar resource memiliki object: "list" , diikuti array data
+berisi masing-masing objek resource, dan meta info paginasi. Contoh struktur:
+
+{
+"object": "list",
+"data": [
+{
+"object": "server",
+"attributes": { ... }
+},
+...
+],
+"meta": {
+"pagination": {
+"total": 50,
+"count": 25,
+"per_page": 25,
+"current_page": 1,
+"total_pages": 2,
+"links": { }
+}
+}
+}
+Elemen meta.pagination mencakup total item, jumlah item di halaman ini, ukuran per halaman,
+halaman saat ini, total halaman, dan link navigasi halaman (jika ada) 22
+
+23 .
+
+Pagination: Gunakan parameter query page dan per_page untuk navigasi daftar. Default page=1 ,
+per_page=50 (maksimum 100) 24 . Contoh: GET /api/application/users?page=2&per_page=25
+untuk halaman 2 dengan 25 item per halaman 25 .
+Filtering:
+
+Banyak
+
+endpoint
+
+mendukung
+
+filter[field]=value . Contoh:
+
+GET
+
+filter
+
+via
+
+query
+
+filter[...] .
+
+Format
+
+umumnya
+
+/api/application/users?filter[email]=@example.com
+
+(hanya user dengan email mengandung @example.com ) 25 . Filter yang tersedia tergantung endpoint
+(misal filter by name, UUID, external_id, dll, sesuai dokumentasi per endpoint).
+Sorting: Beberapa daftar bisa diurutkan dengan query sort=field atau sort=-field (minus untuk
+urutan menurun). Contoh: ?sort=-created_at untuk mengurutkan dari terbaru 26 .
+
+3
+
+Include: Untuk menambahkan data relasi terkait dalam respons, gunakan query include . Misal: ?
+include=servers
+
+pada endpoint user (Application API) akan menyertakan daftar server milik user
+
+tersebut 27 . Multiple relasi bisa dipisah koma, misal include=allocations,location pada endpoint
+node 28 . Periksa dokumentasi tiap endpoint untuk relasi yang dapat di-include.
+
+Kode Error Standar
+Pterodactyl API menggunakan kode status HTTP standar untuk menandakan hasil operasi 29 . Berikut
+beberapa kode umum dan artinya 30 :
+• 200 OK: Permintaan berhasil dan (jika ada) data dikembalikan 31 .
+• 201 Created: Objek baru berhasil dibuat (umumnya dikembalikan pada POST) 31 .
+• 204 No Content: Permintaan sukses, tapi tidak ada konten yang dikembalikan (misal operasi DELETE
+atau aksi sukses tanpa data) 32 .
+• 400 Bad Request: Request tidak valid atau parameter salah 33 .
+• 401 Unauthorized: Autentikasi gagal atau header Authorization tidak disertakan/invalid 33 .
+• 403 Forbidden: Permintaan ditolak – API key tidak punya izin untuk aksi tersebut 34 .
+• 404 Not Found: Resource tidak ditemukan (endpoint atau ID salah) 35 .
+• 422 Unprocessable Entity: Error validasi (data yang dikirim tidak memenuhi aturan, misal field
+wajib kosong atau format salah) 36 .
+• 429 Too Many Requests: Terlalu banyak permintaan (kena rate limit) 37 .
+• 500 Internal Server Error: Kesalahan di sisi server (umum, bisa karena bug atau masalah tak
+terduga) 38 .
+• 502 Bad Gateway: Panel atau daemon tidak dapat dijangkau (mungkin service Wings offline) 39 .
+Format Error Response: Bila terjadi error, API mengirim JSON berisi array errors . Tiap elemen memiliki
+code (kode error internal), status (kode HTTP), detail (pesan error yang bisa dibaca), dan optional
+source (misal field yang bermasalah untuk error validasi) 40
+
+41 . Contoh error 422 dengan detail
+
+field:
+
+{
+"errors": [
+{
+"code": "required",
+"status": "422",
+"detail": "The name field is required.",
+"source": { "field": "name" }
+},
+{
+"code": "email",
+"status": "422",
+"detail": "The email must be a valid email address.",
+"source": { "field": "email" }
+}
+]
+}
+
+4
+
+42
+
+43
+
+Saat mengonsumsi API, selalu tangani kode status dan isi pesan error ini. Misal, 401/403 bisa diartikan
+perlu cek token/izin, 422 berarti perlu memperbaiki input, 429 perlu tunggu sebelum retry, dll 44 45 .
+
+Client API (User Endpoint) – Untuk pengelolaan server oleh pengguna
+Client API memungkinkan user reguler melakukan tindakan pada server yang mereka miliki atau memiliki
+akses. Otentikasi menggunakan Client API Key (Bearer token ptlc_...) 46 . Berikut endpoint-endpoint
+utama:
+
+Manajemen Akun (Account Management)
+Endpoint di bawah ini terkait akun pengguna itu sendiri (profile, keamanan 2FA, API key pribadi):
+• GET /api/client/account – Mendapatkan Detail Akun
+Deskripsi: Mengambil informasi akun user yang terhubung (profil) 47 .
+Parameter: (Tidak ada) – API mendeteksi user dari API key yang dipakai.
+Contoh Request:
+
+curl -X GET "https://your-panel.com/api/client/account" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Accept: Application/vnd.pterodactyl.v1+json"
+Contoh Respons: (Berhasil 200 OK)
+{
+"object": "user",
+"attributes": {
+"id": 1,
+"admin": false,
+"username": "user123",
+"email": "[email protected]",
+"first_name": "John",
+"last_name": "Doe",
+"language": "en"
+}
+}
+Penjelasan: Field attributes memuat detail akun: id (ID user), admin (apakah user admin
+panel), username , email , first_name & last_name (nama depan/belakang), language
+(kode bahasa UI) 48 .
+
+5
+
+• GET /api/client/account/two-factor – Mengambil Detail Setup 2FA
+Deskripsi: Mendapatkan data untuk setup Two-Factor Authentication (misal QR code atau token
+untuk Google Authenticator) 49 .
+Parameter: (Tidak ada).
+Contoh:
+
+curl -X GET "https://your-panel.com/api/client/account/two-factor" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Accept: application/json"
+Respons: Data JSON berisi informasi untuk menyetel 2FA (misal gambar QR dalam bentuk data URL
+atau token secret). (Detail struktur tergantung implementasi, tidak diperlihatkan di contoh) 50 .
+• POST /api/client/account/two-factor – Mengaktifkan 2FA
+Deskripsi: Mengaktifkan autentikasi dua faktor untuk akun. User harus memindai kode QR terlebih
+dahulu, lalu mengirim kode OTP.
+Body: JSON dengan field:
+• code (string, wajib) – Kode OTP 6 digit dari aplikasi autentikator 51 .
+Contoh:
+
+curl -X POST "https://your-panel.com/api/client/account/two-factor" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "code": "123456" }'
+Respons: Jika sukses (200 OK), 2FA diaktifkan untuk akun. Jika kode salah, kemungkinan error
+400/401. (Struktur respons sukses tidak mengembalikan body khusus selain status).
+• DELETE /api/client/account/two-factor – Menonaktifkan 2FA
+Deskripsi: Men-disable 2FA pada akun. Membutuhkan konfirmasi password saat ini.
+Body: JSON:
+• password (string, wajib) – Password akun saat ini (untuk verifikasi) 52 .
+Contoh:
+
+curl -X DELETE "https://your-panel.com/api/client/account/two-factor" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "password": "MyCurrentPassword" }'
+Respons: 204 No Content jika berhasil. Error 403 jika password salah.
+
+6
+
+• PUT /api/client/account/email – Memperbarui Email Akun
+Deskripsi: Mengganti alamat email akun user. Perlu verifikasi password.
+Body: JSON:
+• email (string, wajib) – Email baru yang diinginkan 53 .
+• password (string, wajib) – Password akun saat ini (sebagai konfirmasi) 53 .
+Contoh:
+
+curl -X PUT "https://your-panel.com/api/client/account/email" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "email": "[email protected]", "password": "MyCurrentPassword" }'
+Respons: 204 No Content jika sukses (email diperbarui). Jika password salah atau email tidak valid,
+akan mendapat error (422 atau 403).
+• PUT /api/client/account/password – Mengubah Password Akun
+Deskripsi: Mengganti password login akun.
+Body: JSON:
+• current_password (string, wajib) – Password lama saat ini 54 .
+• password (string, wajib) – Password baru yang diinginkan.
+• password_confirmation (string, wajib) – Konfirmasi password baru (harus sama persis) 54 .
+Contoh:
+
+curl -X PUT "https://your-panel.com/api/client/account/password" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{
+"current_password": "OldPass123!",
+"password": "NewPass456!",
+"password_confirmation": "NewPass456!"
+}'
+Respons: 204 No Content jika berhasil. Error 422 jika konfirmasi tidak cocok atau password tidak
+memenuhi syarat kompleksitas.
+• GET /api/client/account/api-keys – Melihat Daftar API Key (Client)
+Deskripsi: Menampilkan semua API key Client milik user (termasuk nama deskripsi dan izin IP jika
+ada).
+Parameter: (Tidak ada).
+Contoh:
+
+7
+
+curl -X GET "https://your-panel.com/api/client/account/api-keys" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Accept: application/json"
+Contoh Respons:
+{
+"object": "list",
+"data": [
+{
+"object": "api_key",
+"attributes": {
+"identifier": "ABCD1234",
+"description": "Key for my scripts",
+"allowed_ips": [],
+"last_used_at": "2025-08-01T10:00:00+00:00",
+"created_at": "2025-07-01T12:34:56+00:00"
+}
+}
+]
+}
+Penjelasan: Setiap API key ditampilkan sebagai objek dengan identifier (4-8 karakter pertama
+kunci), description (deskripsi), allowed_ips (array IP yang diizinkan, bisa kosong berarti
+semua IP), last_used_at (terakhir dipakai kapan), created_at (tanggal pembuatan).
+• POST /api/client/account/api-keys – Membuat API Key Baru
+Deskripsi: Membuat API key Client baru untuk akun (user dapat memiliki beberapa API key).
+Body: JSON:
+• description (string, wajib) – Deskripsi kunci (misal “Key untuk backup script”) 55 .
+• allowed_ips (array string, opsional) – Daftar IP yang diizinkan (jika kosong atau tidak ada, berarti
+tidak dibatasi IP) 56 .
+Contoh:
+
+curl -X POST "https://your-panel.com/api/client/account/api-keys" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "description": "My API Key", "allowed_ips":
+["123.45.67.89/32"] }'
+Contoh Respons:
+
+8
+
+{
+"object": "api_key",
+"attributes": {
+"identifier": "XYZ7890",
+"token": "ptlc_XYZ7890abcdefghijklmnopqrstuv",
+"description": "My API Key",
+"allowed_ips": ["123.45.67.89/32"],
+"last_used_at": null,
+"created_at": "2025-08-05T08:00:00+00:00"
+}
+}
+Penjelasan: Respons berisi token sebenarnya (hanya ditampilkan sekali saat pembuatan). Simpan
+token ini karena tidak bisa direkam kembali dari panel. Field lain serupa dengan list API key di atas.
+• DELETE /api/client/account/api-keys/{identifier} – Menghapus API Key
+Deskripsi: Menghapus API key Client tertentu. Parameter {identifier} adalah identifier kunci
+(bisa didapat dari list API keys, mis. "ABCD1234") 57 .
+Contoh:
+
+curl -X DELETE "https://your-panel.com/api/client/account/api-keys/
+ABCD1234" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY"
+Respons: 204 No Content jika berhasil (kunci dihapus). Error 404 jika identifier tidak ditemukan.
+
+Manajemen Server (Server Management)
+Endpoint di bagian ini digunakan pengguna untuk melihat dan mengontrol server yang mereka miliki atau
+diberi akses. Semua URL mengandung {server} yang biasanya bisa berupa UUID atau identifier server
+(short UUID 8 karakter) sesuai yang diberikan oleh API. Pastikan API key memiliki hak akses ke server
+terkait.
+• GET /api/client – List Semua Server
+Deskripsi: Mengambil daftar semua server yang dapat diakses oleh user (baik sebagai owner
+maupun subuser) 58 . Termasuk nama, status, dll.
+Parameter Query (opsional):
+◦ include : menambah data terkait di output. Contoh ?
+include=egg,subusers,allocations untuk menyertakan data egg (jenis server),
+subuser, dan port/allocations 59 .
+◦ page , per_page : paginasi hasil (default 50 per halaman) 24 .
+◦ filter[name] , filter[uuid] : memfilter server berdasarkan nama atau UUID (jika
+didukung).
+
+9
+
+Contoh Request:
+curl "https://your-panel.com/api/client?per_page=50" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Accept: Application/vnd.pterodactyl.v1+json"
+Contoh Respons: (potongan)
+{
+"object": "list",
+"data": [
+{
+"object": "server",
+"attributes": {
+"server_owner": true,
+"identifier": "d3aac109",
+"internal_id": 4,
+"uuid": "d3aac109-e5e0-4331-b03e-3454f7e136dc",
+"name": "Survival Server",
+"description": "A vanilla Minecraft survival server",
+"status": null,
+"is_suspended": false,
+"is_installing": false,
+"is_transferring": false,
+"node": "Node 1",
+"sftp_details": {
+"ip": "node.example.com",
+"port": 2022
+},
+"invocation": "java -Xms128M -Xmx1024M -jar server.jar",
+"docker_image": "ghcr.io/pterodactyl/yolks:java_17",
+"egg_features": ["eula", "java_version", "pid_limit"],
+"feature_limits": { "databases": 2, "allocations": 1 },
+"user_permissions": ["control.console", "control.start",
+"..."],
+"limits": {
+"memory": 1024, "swap": 0, "disk": 5120, "io": 500, "cpu":
+200
+}
+}
+},
+...
+],
+"meta": { "pagination": { ... } }
+}
+
+10
+
+Penjelasan: Output berupa list server. Tiap server:
+◦ identifier dan uuid : ID unik server (identifier adalah 8-karakter pertama UUID) 60 .
+◦ name dan description : Nama dan deskripsi server.
+◦ node : Nama node tempat server berjalan.
+◦ server_owner : true jika Anda pemilik server tersebut 61 .
+◦ is_suspended , is_installing , is_transferring : status booleans (true jika server
+sedang suspended/maintenance, dalam proses instalasi, atau transfer) 62 .
+◦ status : status runtime saat ini (misal "running", "offline", atau null jika tidak tersedia) 63 .
+◦ sftp_details : informasi koneksi SFTP (IP dan port) untuk mengakses file server 64 .
+◦ invocation : perintah yang digunakan untuk menjalankan server (misal command Java)
+65 .
+
+◦ docker_image : image Docker yang dipakai server 65 .
+◦ egg_features : fitur khusus egg yang aktif.
+◦ feature_limits : batas fitur seperti jumlah databases, allocations, backups, dll 66 .
+◦ user_permissions : daftar izin yang dimiliki user pada server tsb (misal control.start
+untuk menyalakan, control.console untuk akses konsol) 67 .
+◦ limits : resource limit server (memory dalam MB, disk dalam MB, CPU dalam persen, dll)
+68 .
+• GET /api/client/servers/{server} – Detail Server
+Deskripsi: Mengambil informasi detail untuk satu server tertentu yang diakses oleh user 58 .
+{server} biasanya bisa diisi identifier (8 karakter) atau UUID lengkap server.
+Parameter:
+◦ include : untuk menyertakan relasi (misal ?include=egg,subusers,allocations ).
+Contoh:
+curl -X GET "https://your-panel.com/api/client/servers/d3aac109" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY"
+Respons: Struktur JSON serupa dengan item attributes pada list di atas, tapi tanpa
+dibungkus array (karena satu objek). Misalnya:
+{
+"object": "server",
+"attributes": {
+"server_owner": true,
+"identifier": "d3aac109",
+"uuid": "d3aac109-e5e0-4331-b03e-3454f7e136dc",
+"name": "Survival Server",
+"description": "A vanilla Minecraft survival server",
+"status": "running",
+"is_suspended": false,
+"is_installing": false,
+"is_transferring": false,
+"node": "Node 1",
+
+11
+
+"sftp_details": { "ip": "node.example.com", "port": 2022 },
+"invocation": "...", "docker_image": "...",
+"egg_features": [...],
+"feature_limits": { "databases": 2, "allocations": 1, "backups":
+10 },
+"user_permissions": [ "control.console", "control.start", ... ],
+"limits": { "memory": 1024, "disk": 5120, ... }
+}
+}
+Penjelasan: Field-field sama seperti yang telah dijelaskan sebelumnya untuk list server 69
+70 . Field status akan berisi status terbaru server ( running/offline ) jika diketahui
+63 . Jika query
+
+include dipakai, akan muncul field tambahan di attributes seperti
+
+egg (info egg), allocations (daftar port), databases , dll sesuai yang diminta.
+• GET /api/client/servers/{server}/resources – Resource Usage (Stats)
+Deskripsi: Mengambil statistik pemakaian resource real-time dari server (RAM, CPU, disk, network)
+serta status saat ini 71 . Ini setara dengan data yang ditampilkan di UI panel pada halaman console
+(bagian resource usage).
+Parameter: (Tidak ada).
+Contoh:
+
+curl "https://your-panel.com/api/client/servers/d3aac109/resources" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY"
+Contoh Respons:
+{
+"object": "stats",
+"attributes": {
+"current_state": "running",
+"is_suspended": false,
+"resources": {
+"memory_bytes": 671088640,
+"memory_limit_bytes": 1073741824,
+"cpu_absolute": 1.522,
+"disk_bytes": 2147483648,
+"network_rx_bytes": 676237,
+"network_tx_bytes": 1097738,
+"uptime": 3600000
+}
+}
+}
+
+12
+
+72
+
+73
+
+Penjelasan:
+◦ current_state : status power server saat ini (misal "running", "stopping", "offline") 74 .
+◦ is_suspended : apakah server disuspend admin atau tidak 74 .
+◦ resources : objek berisi angka-angka pemakaian:
+◦ memory_bytes dan memory_limit_bytes : penggunaan RAM saat ini vs batas maksimal
+(byte) 75 76 .
+◦ cpu_absolute : penggunaan CPU saat ini dalam persen (misal 1.522 berarti ~1.52%) 75 .
+◦ disk_bytes : penggunaan ruang disk (byte).
+◦ network_rx_bytes / network_tx_bytes : total data received/transmitted (byte) sejak
+server start.
+◦ uptime : lama uptime server dalam milidetik (ms).
+• POST /api/client/servers/{server}/power – Mengontrol Power Server
+Deskripsi: Mengirim perintah power (nyala/mati/restart/kill) ke server 77 . Ini setara dengan tombol
+Start/Stop/Restart di panel.
+Body: JSON dengan field:
+◦ signal (string, wajib) – aksi power yang diinginkan: "start" , "stop" , "restart" ,
+atau "kill" 78 .
+◦ start: Menyalakan server (jika offline) 79 .
+◦ stop: Mematikan server secara normal (graceful) 79 .
+◦ restart: Merestart server (stop lalu start lagi) 79 .
+◦ kill: Mematikan paksa (force stop) – hati-hati kemungkinan data corrupt 79 .
+Contoh Request: (misal restart server)
+curl -X POST "https://your-panel.com/api/client/servers/d3aac109/
+power" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "signal": "restart" }'
+80
+
+Respons: Jika berhasil, API mengembalikan 204 No Content (tindakan diterima) 81 . Anda
+bisa mengecek status server via endpoint /resources atau WebSocket events untuk
+melihat perubahan status.
+• Error 400 dapat terjadi jika aksi tidak cocok dengan kondisi server, misal mengirim "start"
+padahal server sudah menyala (ConflictingServerStateException) 82 .
+• Error 403 muncul jika API key tidak punya izin power (misal subuser tanpa permission tersebut) 83 .
+• GET /api/client/servers/{server}/websocket – Mendapatkan Token WebSocket Console
+Deskripsi: Mendapatkan URL socket dan token JWT sementara untuk terhubung ke WebSocket
+console server 84 . Endpoint ini tidak membuka koneksi WS langsung, melainkan memberikan
+kredensial yang dibutuhkan.
+Parameter: (Tidak ada).
+
+13
+
+Contoh Request:
+
+curl "https://your-panel.com/api/client/servers/d3aac109/websocket" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Accept: Application/vnd.pterodactyl.v1+json"
+85
+
+Contoh Respons:
+{
+"data": {
+"token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...<jwt>...",
+"socket": "wss://node.example.com:8080/api/servers/d3aac109-e5e0-4331b03e-3454f7e136dc/ws"
+}
+}
+86
+
+Penjelasan: Field token adalah JWT valid ~10 menit yang harus digunakan untuk autentikasi ke
+WebSocket 87 . Field socket adalah URL WebSocket lengkap (protocol wss, host & port node
+Wings, path API dengan UUID server diikuti /ws ) 88 . Catatan: Hanya user dengan permission
+websocket.connect yang dapat memperoleh token ini 89 .
+Langkah Selanjutnya: Gunakan data ini untuk membuka koneksi WebSocket ke console. (Lihat bagian
+WebSocket API di bawah untuk panduan koneksi real-time.)
+• POST /api/client/servers/{server}/command – Mengirim Perintah Konsol
+Deskripsi: Menjalankan suatu perintah di console server (misal perintah game atau shell command
+jika didukung) 90 . Ini serupa dengan mengetik perintah di console via panel.
+Body: JSON:
+◦ command (string, wajib) – perintah yang akan dieksekusi di console 91 .
+Contoh Request: (contoh mengirim pesan chat di game Minecraft)
+curl -X POST "https://your-panel.com/api/client/servers/d3aac109/
+command" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "command": "say Hello from API!" }'
+92
+
+Respons: Jika berhasil, server mengembalikan 204 No Content (perintah dikirim) 93 . Tidak
+ada output langsung di respons; output muncul via stream console (WebSocket) jika
+terhubung.
+• Error 400 terjadi jika server sedang offline (tidak bisa kirim perintah ke server mati) 94 .
+
+14
+
+• Error
+403
+terjadi
+jika
+API
+key
+tidak
+punya
+izin
+console
+(kode
+InsufficientPermissionsException , detail memerlukan permission control.console )
+95 .
+
+• POST
+
+/api/client/servers/{server}/settings/rename
+
+– Mengubah Nama/Deskripsi
+
+Server
+Deskripsi: Mengupdate nama dan/atau deskripsi dari server. (User harus pemilik atau punya izin
+yang diperlukan untuk mengelola detail server) 96 .
+Body: JSON:
+◦ name (string, wajib) – Nama baru server (maks 255 karakter) 97 .
+◦ description (string, opsional) – Deskripsi baru (maks 500 karakter) 97 .
+Contoh:
+curl -X POST "https://your-panel.com/api/client/servers/d3aac109/
+settings/rename" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "name": "Nama Server Baru", "description": "Deskripsi
+update" }'
+98
+
+Respons: 204 No Content jika sukses – nama/deskripsi server berubah 99 . (Perubahan bisa
+diverifikasi dengan GET detail server). Error 422 jika nama kosong atau terlalu panjang.
+• POST /api/client/servers/{server}/settings/reinstall – Reinstall Server
+Deskripsi: Memicu proses reinstall server sesuai egg-nya. Peringatan: Ini akan menghapus semua
+file server dan menginstal ulang dari awal, sebaiknya backup dahulu 100 101 .
+Parameter/Body: (tidak ada) – hanya perlu memanggil endpoint.
+Contoh:
+
+curl -X POST "https://your-panel.com/api/client/servers/d3aac109/settings/
+reinstall" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY"
+102
+
+Respons: 202 Accepted jika berhasil dijadwalkan 103 . Ini menandakan proses reinstall dimulai
+(asinkron). Server status akan menjadi installing.
+• PUT
+
+/api/client/servers/{server}/settings/docker-image
+
+– Ubah Docker Image
+
+Server
+Deskripsi: Mengganti image Docker yang digunakan server (harus salah satu image yang diizinkan
+
+15
+
+oleh egg server tersebut) 104 . Biasanya memerlukan permission startup.docker-image .
+Body: JSON:
+◦ docker_image (string, wajib) – Tag image Docker baru yang akan dipakai server 105 .
+Contoh:
+curl -X PUT "https://your-panel.com/api/client/servers/d3aac109/
+settings/docker-image" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "docker_image": "ghcr.io/pterodactyl/yolks:java_17" }'
+106
+
+Respons: 204 No Content jika sukses (server kini akan menggunakan image baru pada
+restart berikutnya) 107 .
+• Error 422 jika image yang diberikan tidak valid/tidak tersedia untuk egg tsb (misal salah penulisan)
+108 .
+• Error 403 jika tidak punya izin (detail: butuh 'startup.docker-image' permission) 109 .
+• POST /api/client/servers/{server}/startup/variable – Update Variabel Startup
+Deskripsi: Mengubah nilai environment variable tertentu untuk server (misal mengubah setting
+server jar, versi, atau opsi startup lain yang dikonfigurasi lewat egg) 110 .
+Body: JSON berisi satu atau beberapa variabel startup yang akan diubah, misalnya:
+
+{ "env_variable": "SERVER_JARFILE", "value": "server.jar" }
+(Catatan: format tepatnya tergantung implementasi, bisa juga melalui endpoint khusus per variabel.
+Dokumentasi ini menyebut "Update Startup Variable" namun detail lengkap tidak ditampilkan di
+sumber.)
+Contoh:
+
+curl -X POST "https://your-panel.com/api/client/servers/{server}/startup/
+variable" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "env_variable": "MAX_MEMORY", "value": "2048" }'
+Respons: 204 No Content jika berhasil, menandakan variabel tersimpan. Error 422 jika value tidak valid,
+atau 403 jika tidak punya izin mengelola startup.
+(Catatan: Beberapa panel mungkin tidak mengizinkan user non-admin mengubah variabel startup tertentu
+tergantung permission).
+
+16
+
+Manajemen Berkas (File Management)
+Endpoint berikut memungkinkan pengguna mengelola file di server mereka (browse, upload, download,
+edit, hapus, dll). Semua endpoint ini memakai {server} ID dan membutuhkan permission file
+management ( read , write file, dll sesuai aksinya):
+• GET /api/client/servers/{server}/files/list – List Direktori
+Deskripsi: Melihat isi sebuah direktori di file system server 111 . Secara default, menampilkan root
+directory ( / ).
+Query:
+◦ directory (string, opsional) – Path direktori yang ingin dilist. Default: / (root) 112 . Path
+harus URL-encoded (misal /folder name menjadi %2Ffolder%20name ).
+Contoh:
+curl "https://your-panel.com/api/client/servers/d3aac109/files/list?
+directory=%2F" \
+-H "Authorization: Bearer ptlc_YOUR_API_KEY"
+113
+
+Contoh Respons:
+{
+"object": "list",
+"data": [
+{
+"object": "file_object",
+"attributes": {
+"name": "server.jar",
+"mode": "-rw-r--r--",
+"mode_bits": "0644",
+"size": 47698923,
+"is_file": true,
+"is_symlink": false,
+"mimetype": "application/java-archive",
+"created_at": "2024-01-15T14:30:25+00:00",
+"modified_at": "2024-01-15T14:30:25+00:00"
+}
+},
+{
+"object": "file_object",
+"attributes": {
+"name": "logs",
+"mode": "drwxr-xr-x",
+"mode_bits": "0755",
+"size": 4096,
+
+17
+
+"is_file": false,
+"is_symlink": false,
+"mimetype": "inode/directory",
+"created_at": "2024-01-15T14:30:25+00:00",
+"modified_at": "2024-01-15T14:30:25+00:00"
+}
+},
+...
+]
+}
+114
+
+115
+
+Penjelasan: Tiap item di data merepresentasikan entitas di folder (file atau subfolder).
+Field:
+◦ name : nama file/folder 116 .
+◦ mode & mode_bits : permission UNIX dalam format string ( -rw-r--r-- ) dan oktal
+( 0644 ) 117 .
+◦ size : ukuran file (byte). Untuk folder biasanya 4096 atau 0.
+◦ is_file : true jika entitas adalah file, false jika folder 118 .
+◦ is_symlink : true jika entitas symlink.
+◦ mimetype : tipe MIME file, atau inode/directory untuk folder 119 .
+◦ created_at , modified_at : timestamp pembuatan dan modifikasi terakhir.
+• GET /api/client/servers/{server}/files/contents – Baca Isi File
+Deskripsi: Mengunduh isi sebuah file teks secara langsung (misal untuk ditampilkan di editor) 120 .
+Query:
+◦ file (string, wajib) – path file yang ingin dibaca (URL-encode).
+Contoh:
+GET /api/client/servers/d3aac109/files/contents?
+file=%2Flogs%2Flatest.log
+Respons: Konten file dikembalikan langsung sebagai teks (bukan JSON). Contohnya, respons
+mungkin berisi seluruh teks latest.log . Header Content-Type biasanya text/plain
+atau sesuai MIME file.
+• Error 404 jika file tidak ditemukan, 400 jika path mengarah ke folder bukannya file.
+• GET /api/client/servers/{server}/files/download – Mendapatkan URL Download File
+Deskripsi: Memperoleh link sekali pakai untuk mengunduh file binary secara utuh. Ini digunakan
+untuk download file (misal jar, zip besar).
+Query:
+◦ file (string, wajib) – path file yang akan di-download (URL-encode).
+Contoh:
+
+18
+
+GET /api/client/servers/d3aac109/files/download?file=%2Fserver.jar
+Respons: JSON berisi URL sementara. Misal:
+{ "object": "signed_url", "attributes": {
+"url": "https://your-panel.com/api/client/servers/d3aac109/files/
+download...token..."
+} }
+Anda kemudian melakukan request GET ke URL tersebut untuk mengunduh file sebenarnya.
+Link biasanya berlaku singkat (beberapa menit).
+• PUT/POST /api/client/servers/{server}/files/write – Mengedit/Simpan Isi File
+Deskripsi: Menyimpan konten ke file teks di server (overwrite isi file). Endpoint ini tidak langsung
+dijelaskan di potongan dokumen, namun umumnya tersedia.
+Body: Langsung berupa raw content atau sebagai form field content .
+Contoh (pseudo):
+
+curl -X PUT "https://your-panel.com/api/client/servers/{server}/files/
+write?file=%2Fnotes.txt" \
+-H "Authorization: Bearer ... " \
+--data-binary @"notes_local.txt"
+Respons: 204 No Content jika berhasil. File di server diupdate dengan konten baru.
+• POST /api/client/servers/{server}/files/create-folder – Buat Folder
+Deskripsi: Membuat direktori baru di path tertentu.
+Body: JSON:
+◦ name (string, wajib) – Nama folder yang akan dibuat.
+◦ root (string, wajib) – Path direktori induk di mana folder dibuat (mis. "/" untuk root atau "/
+folder1" untuk di dalam folder1).
+Contoh:
+curl -X POST "https://your-panel.com/api/client/servers/{server}/
+files/create-folder" \
+-H "Authorization: Bearer ... " \
+-H "Content-Type: application/json" \
+-d '{ "name": "newfolder", "root": "/path/utama" }'
+Respons: 204 No Content jika sukses (folder tercipta), atau error 400 jika folder sudah ada.
+
+19
+
+• POST /api/client/servers/{server}/files/rename – Rename/Memindahkan File/Folder
+Deskripsi: Mengganti nama file/folder atau memindahkannya ke lokasi lain.
+Body: JSON dengan daftar file:
+◦ root (string, wajib) – Path direktori yang menjadi root operasi (mis. "/" atau "/folderX").
+◦ files (array, wajib) – Daftar objek yang berisi from dan to . Contoh:
+"files": [
+{ "from": "oldname.txt", "to": "newname.txt" }
+]
+Dapat juga memuat path untuk memindahkan ke folder lain ( "to": "subdir/
+namafile.txt" ).
+Respons: 204 No Content jika berhasil. Jika salah satu gagal (misal nama tujuan sudah ada),
+umumnya error 400 dengan detail.
+• POST /api/client/servers/{server}/files/copy – Menyalin File/Folder
+Deskripsi: Membuat duplikat file atau folder.
+Body: mirip dengan rename, gunakan location
+
+atau struktur
+
+files
+
+(dokumentasi tidak
+
+spesifik di potongan, namun kemungkinan serupa).
+Respons: 204 jika sukses (file disalin dengan nama baru).
+• POST /api/client/servers/{server}/files/delete – Menghapus File/Folder
+Deskripsi: Menghapus satu atau beberapa file/folder.
+Body: JSON:
+◦ root (string, wajib) – Path direktori dimana file berada (misal "/" atau "/folderX").
+◦ files (array string, wajib) – Daftar nama file/folder di root yang akan dihapus. Contoh:
+"files": ["old.txt", "dir1"] .
+Contoh:
+curl -X POST "https://your-panel.com/api/client/servers/{server}/
+files/delete" \
+-H "Authorization: Bearer ... " \
+-H "Content-Type: application/json" \
+-d '{ "root": "/", "files": ["temp.txt", "cache/"] }'
+Respons: 204 No Content jika berhasil. File/folder tersebut dihapus permanen. Error 404 jika
+ada yang tidak ditemukan (maka tidak dihapus).
+• POST /api/client/servers/{server}/files/compress – Membuat Arsip (ZIP)
+Deskripsi: Mengkompres beberapa file/folder menjadi satu arsip .zip di server.
+Body: JSON:
+◦ root (string, wajib) – Path direktori basis dari file-file yang dipilih.
+
+20
+
+◦ files (array string, wajib) – Daftar nama file/folder di root yang akan dimasukkan ke zip.
+Respons: Endpoint ini asynchronous; jika berhasil, akan menghasilkan file .zip di direktori
+tersebut (nama biasanya ditentukan server, misal archive-{random}.zip). API mengembalikan
+data zip mungkin melalui event WebSocket atau perlu polling list file untuk melihat zip
+muncul.
+• POST /api/client/servers/{server}/files/decompress – Mengekstrak Arsip
+Deskripsi: Mengekstrak file arsip (.zip) di server.
+Body: JSON:
+◦ root (string, wajib) – Path direktori tempat file arsip berada.
+◦ file (string, wajib) – Nama file arsip .zip yang akan diekstrak.
+Respons: 204 jika ekstraksi dijadwalkan. File akan diekstrak dalam folder yang sama atau
+sesuai struktur di dalam zip. (Hati-hati: bisa menimpa file yang ada).
+• GET /api/client/servers/{server}/files/upload – Meminta URL Unggah
+Deskripsi: Proses upload file memakai dua langkah. Pertama, minta URL upload dengan endpoint
+ini.
+Respons: Memberikan URL signed URL (unik dan sementara) untuk upload. Contoh:
+
+{ "object": "signed_url", "attributes": {
+"url": "https://node.example.com/upload/serve...longtoken..."
+} }
+Kedua, lakukan request PUT file ke URL tersebut (diluar API panel, langsung ke daemon) untuk
+mengunggah file sebenarnya 121 .
+Contoh Penggunaan:
+• GET /files/upload → dapat URL upload.
+• Gunakan curl/axios untuk PUT file ke URL yang diberikan:
+curl -X PUT "<signed_upload_url>" \
+--data-binary "@/path/to/localfile.zip"
+• Jika sukses (status 204/200), file akan muncul di server (biasanya di folder root atau path yang
+ditentukan pada URL).
+Catatan: Size upload mungkin dibatasi (per file atau total).
+
+Manajemen Database
+Endpoint ini untuk mengelola database yang terkait dengan server (melalui fitur Databases di panel):
+• GET /api/client/servers/{server}/databases – List Database
+Deskripsi: Melihat semua database yang dibuat untuk server tersebut 122 . Termasuk host,
+username, dll.
+Parameter: (Tidak ada).
+
+21
+
+Contoh Respons:
+
+{
+"object": "list",
+"data": [
+{
+"object": "database",
+"attributes": {
+"id": 12,
+"host": "db.myhost.com",
+"port": 3306,
+"name": "s1_demo",
+// nama database
+"username": "pterodactyl", // username db
+"connections_from": "%" // allowed connections (IP wildcard)
+}
+}
+]
+}
+Penjelasan: Masing-masing DB punya name (nama DB), username (user DB), host (hostname
+database server), port , dan connections_from (IP yang diizinkan connect, % berarti semua)
+serta internal id .
+• POST /api/client/servers/{server}/databases – Membuat Database
+Deskripsi: Membuat database baru untuk server. Panel akan menggenerate nama DB, user, dan
+password.
+Body: JSON:
+◦ database (string, opsional) – Nama database diinginkan (kalau kosong, panel bikin
+otomatis, biasanya format panel_{random}).
+◦ remote (string, opsional) – Aturan host yang diizinkan connect (default % = semua IP, atau
+bisa isi IP spesifik).
+Contoh:
+curl -X POST "https://your-panel.com/api/client/servers/{server}/
+databases" \
+-H "Authorization: Bearer ... " \
+-H "Content-Type: application/json" \
+-d '{ "database": "plugin_data", "remote": "127.0.0.1" }'
+Respons: Mengembalikan detail DB baru (nama, user, password plaintext sekali tampil).
+Simpannya baik-baik. Contoh:
+{
+"object": "database",
+
+22
+
+"attributes": {
+"id": 13,
+"host": "db.myhost.com",
+"name": "s1_plugin_data",
+"username": "ptero_abc123",
+"password": "rawpassword",
+"connections_from": "127.0.0.1"
+
+// ditampilkan hanya saat buat
+
+}
+}
+• POST
+
+/api/client/servers/{server}/databases/{id}/rotate-password
+
+–
+
+Reset
+
+Password DB
+Deskripsi: Mengganti password untuk user database tertentu (generate baru). {id} adalah ID
+database (bisa didapat dari list database).
+Parameter/Body: (Tidak ada).
+Contoh:
+
+curl -X POST "https://your-panel.com/api/client/servers/{server}/databases/
+13/rotate-password" \
+-H "Authorization: Bearer ... "
+Respons: Keluaran berupa detail database dengan password baru (seperti respons create DB,
+terdapat field password baru).
+• DELETE /api/client/servers/{server}/databases/{id} – Menghapus Database
+Deskripsi: Menghapus database dari server (akan DROP database dan user terkait dari host
+database).
+Contoh:
+
+curl -X DELETE "https://your-panel.com/api/client/servers/{server}/
+databases/13" \
+-H "Authorization: Bearer ... "
+Respons: 204 No Content jika berhasil. DB dan kredensial dihapus. Error 404 jika ID tidak ada atau
+bukan milik server.
+
+Manajemen Backup
+(Catatan: Fitur backup tergantung konfigurasi panel. Jika backup diaktifkan, endpoint ini berlaku) 123 .
+• GET /api/client/servers/{server}/backups – List Backup
+Deskripsi: Menampilkan semua backup server tersebut (file arsip yang dibuat melalui fitur backup
+panel).
+
+23
+
+Respons: Daftar backup dengan detail seperti UUID backup, ukuran, tanggal dibuat, terkunci/tidak,
+dll.
+• POST /api/client/servers/{server}/backups – Membuat Backup Baru
+Deskripsi: Memicu pembuatan backup (arsip zip berisi semua file server, kecuali yang dikecualikan).
+Body: opsional JSON misal untuk menandai backup terkunci agar tidak otomatis terhapus.
+Respons: 202 Accepted + detail backup baru (dengan status progress). Backup dibuat asynchronous
+(perlu ditunggu hingga selesai, bisa cek status di list backup).
+• GET
+
+/api/client/servers/{server}/backups/{backup_uuid}/download
+
+–
+
+Download
+
+Backup
+Deskripsi: Mendapatkan URL untuk mengunduh file backup.
+Respons: Mirip dengan file download, memberikan url sementara untuk download backup (yang
+biasanya disimpan remote, misal di S3 atau lokasi lain). Gunakan URL tersebut dengan GET untuk
+unduh.
+• DELETE /api/client/servers/{server}/backups/{backup_uuid} – Hapus Backup
+Deskripsi: Menghapus backup tertentu.
+Respons: 204 jika sukses.
+
+Manajemen Schedule (Penjadwalan Tugas)
+Endpoint untuk mengatur tugas terjadwal pada server (Schedule Cron di panel):
+• GET /api/client/servers/{server}/schedules – List Jadwal
+Deskripsi: Melihat semua jadwal (Schedule) yang ada di server (misal restart otomatis, command
+berkala).
+Respons: Daftar jadwal dengan atribut: id, nama, cron schedule (day, hour, minute), apakah aktif, dll.
+• POST /api/client/servers/{server}/schedules – Buat Jadwal Baru
+Body: JSON berisi:
+◦ name (string) – nama jadwal.
+◦ minute , hour , day_of_week , day_of_month – pola jadwal cron.
+◦ is_active (boolean) – apakah jadwal diaktifkan.
+◦ only_when_online (boolean) – hanya jalankan jika server online.
+Respons: 201 Created dengan detail jadwal baru (beserta ID-nya).
+• GET /api/client/servers/{server}/schedules/{id} – Detail Jadwal (Opsional, jika perlu)
+• POST /api/client/servers/{server}/schedules/{id}/tasks – Tambah Tugas ke Jadwal
+Deskripsi: Menambahkan satu task ke schedule (misal menjalankan command atau mengubah
+power). Satu schedule bisa punya beberapa task berurutan dengan delay.
+Body: JSON:
+◦ action (string) – jenis tugas: "command" atau "power" (power signal).
+
+24
+
+◦ payload (string) – isi perintah (jika action=command) atau sinyal power ( start/stop/
+restart/kill jika action=power).
+◦ time_offset (integer) – jeda waktu (detik) setelah jadwal dieksekusi sebelum task ini
+dijalankan.
+◦ sequence_id (integer opsional) – urutan manual, biasanya diisi otomatis berurutan.
+Respons: 201 Created dengan detail task baru.
+• POST/PUT /api/client/servers/{server}/schedules/{id} – Update Jadwal
+Deskripsi: Memodifikasi jadwal (nama, pola cron, aktif/tidak).
+Body: Mirip saat membuat. Field yang tidak disertakan tetap.
+Respons: 204 jika sukses.
+• DELETE /api/client/servers/{server}/schedules/{id} – Hapus Jadwal
+Deskripsi: Menghapus satu schedule beserta seluruh tasks di dalamnya.
+Respons: 204 jika berhasil.
+• POST /api/client/servers/{server}/schedules/{id}/execute – Menjalankan Jadwal
+Deskripsi: Menjalankan schedule segera secara manual (override jadwal waktu). Misal untuk testing.
+Respons: 204 jika berhasil (task2 dalam schedule dieksekusi segera).
+
+Manajemen Jaringan & Alokasi Port
+Endpoint untuk melihat dan mengatur port (allocation) server:
+• GET /api/client/servers/{server}/network (atau /allocations ) – List Alokasi Port
+Deskripsi: Mendapatkan daftar semua port yang dialokasikan ke server (IP dan port). Termasuk port
+utama (yang digunakan untuk server game).
+Respons: Daftar allocations dengan field: id alokasi, IP, port, dan notes (catatan kalau ada), serta
+is_default (true untuk port utama).
+• POST /api/client/servers/{server}/network/allocations – Meminta Alokasi Port Baru
+Deskripsi: (Jika diizinkan oleh admin) Mendapatkan port tambahan untuk server pada node yang
+sama. Panel akan mencari port bebas dan menambahkannya.
+Respons: 201 dengan detail allocation baru (IP:port) yang berhasil ditambahkan, atau error jika tidak
+ada port tersedia.
+• POST /api/client/servers/{server}/network/primary – Mengubah Port Utama
+Body: JSON: { "allocation_id": <id> } – ID alokasi port yang ingin dijadikan port utama.
+Deskripsi: Mengatur port utama server (port ini akan jadi port default untuk koneksi ke server).
+Respons: 204 jika sukses. Server mungkin perlu restart tergantung aplikasinya.
+• POST /api/client/servers/{server}/network/{id}/notes – Mengatur Catatan Port
+Body: JSON: { "notes": "Deskripsi port" } .
+Deskripsi: Menambahkan atau mengubah notes (deskripsi) pada suatu allocation port, untuk
+memudahkan identifikasi (misal “Port RCON”).
+Respons: 204 jika berhasil.
+
+25
+
+Manajemen Subuser (User Management for Servers)
+Endpoint ini untuk mengelola user tambahan (subuser) yang diberi akses ke server dengan izin tertentu:
+• GET /api/client/servers/{server}/users – List Subuser
+Deskripsi: Menampilkan semua subuser yang memiliki akses ke server ini (termasuk email mereka
+dan level akses). Owner (pemilik server) tidak termasuk karena memiliki semua izin secara implisit.
+Respons: Daftar user dengan atribut: UUID user, email, 2FA enable/disable, dan daftar permissions
+yang diberikan.
+• POST /api/client/servers/{server}/users – Menambahkan Subuser
+Deskripsi: Mengundang user lain sebagai subuser server dengan izin tertentu. (User harus sudah
+terdaftar di panel).
+Body: JSON:
+◦ email (string, wajib) – Email akun yang akan diberi akses.
+◦ permissions (array string, wajib) – Daftar permission yang diberikan. Contoh:
+["control.console", "control.start", "file.read", "file.write"] . Ada
+banyak jenis permission (control., backup., allocation., database., schedule., etc.) – sesuaikan
+kebutuhan.
+Contoh:
+curl -X POST "https://your-panel.com/api/client/servers/{server}/
+users" \
+-H "Authorization: Bearer ... " \
+-H "Content-Type: application/json" \
+-d '{
+"email": "[email protected]",
+"permissions":
+["control.console","control.start","file.read"]
+}'
+Respons:* 201 Created + detail subuser yang ditambahkan (UUID user, email, permissions).
+User tersebut kini bisa mengakses server sesuai izin via panel atau API (dengan API key
+mereka sendiri).
+• Error 404 jika email tidak terdaftar dalam panel.
+• Error 409 jika user sudah merupakan subuser atau owner.
+• Error 403 jika API key tidak punya izin manajemen user.
+• GET /api/client/servers/{server}/users/{uuid} – Detail Subuser
+Deskripsi: (Opsional) Melihat detail satu subuser (uuid tertentu) - termasuk izin yang dimilikinya.
+• PUT /api/client/servers/{server}/users/{uuid} – Update Izin Subuser
+Deskripsi: Mengubah daftar permission yang dimiliki subuser tertentu.
+Body: JSON: permissions (array string) – daftar izin baru yang ingin diberikan (menggantikan set
+
+26
+
+lama).
+Respons: 204 No Content jika sukses. Subuser tersebut sekarang hanya memiliki izin yang baru.
+• DELETE /api/client/servers/{server}/users/{uuid} – Menghapus Subuser
+Deskripsi: Mencabut akses user tersebut dari server (menghapus subuser).
+Contoh:
+
+curl -X DELETE "https://your-panel.com/api/client/servers/{server}/users/
+abcd-efgh-uuid" \
+-H "Authorization: Bearer ... "
+Respons: 204 No Content jika berhasil (user tersebut tak lagi punya akses ke server ini).
+
+Application API (Endpoint Admin Panel)
+Application API ditujukan untuk administrator panel. Memungkinkan manipulasi resource panel (users,
+servers, nodes, dsb) secara penuh. Harus menggunakan Application API Key (Bearer ptla_...) 124 . Pastikan
+kunci hanya digunakan oleh aplikasi tepercaya karena haknya penuh.
+Base URL: .../api/application (sudah disebut di awal). Umumnya, JSON respons Application API
+sedikit berbeda detailnya tapi mengikuti pola objek/attributes yang sama. Juga mendukung filter, sort,
+include seperti dijelaskan sebelumnya (misal include relasi user saat mengambil server) 27 .
+Berikut ringkasan endpoint utama Application API:
+
+User Management (Manajemen User Panel)
+Endpoint untuk CRUD user di panel (akun login Pterodactyl):
+• GET /api/application/users – List Semua User
+Deskripsi: Mengambil daftar seluruh akun user terdaftar di panel 125 . Mendukung filter dan
+pagination.
+Query Filter:
+◦ filter[email] : filter berdasarkan email (misal ?filter[email]=@example.com untuk
+semua user email domain tsb) 25 .
+◦ filter[username] , filter[uuid] , filter[external_id] : filter berdasarkan
+username, UUID user, atau external ID.
+◦ per_page , page : paginasi (default 50 per halaman).
+◦ include : bisa include servers untuk daftar server milik user 28 .
+Contoh Request:
+
+27
+
+curl "https://your-panel.com/api/application/users?
+per_page=25&include=servers" \
+-H "Authorization: Bearer ptla_YOUR_API_KEY"
+126
+
+127
+
+Contoh Respons:
+{
+"object": "list",
+"data": [
+{
+"object": "user",
+"attributes": {
+"id": 5,
+"external_id": null,
+"uuid": "9b8d1c52-...-uuid",
+"username": "player123",
+"email": "[email protected]",
+"first_name": "Alice",
+"last_name": "Wong",
+"language": "en",
+"root_admin": false,
+"2fa": true,
+"created_at": "2025-06-01T12:00:00+00:00",
+"updated_at": "2025-07-15T08:30:00+00:00"
+}
+},
+...
+],
+"meta": { "pagination": { ... } }
+}
+Penjelasan: Setiap user memiliki atribut:
+◦ id : ID numeric internal.
+◦ external_id : ID eksternal jika integrasi (null jika tidak dipakai) – bisa digunakan untuk
+mapping dengan ID sistem lain 128 .
+◦ uuid : UUID unik user 129 .
+◦ username , email , first_name , last_name , language – info profil.
+◦ root_admin : true jika user adalah admin utama (punya akses ke panel admin) 130 .
+◦ 2fa : status 2FA di akun (true jika diaktifkan).
+◦ created_at , updated_at : cap waktu pembuatan dan update akun.
+Jika include=servers , maka di tiap item akan ada relasi
+relationships.servers.data yang berisi list server yang dimiliki user tersebut.
+• GET /api/application/users/{id} – Get Detail User
+Deskripsi: Mengambil data detil satu user berdasarkan ID (atau
+
+28
+
+external_id
+
+jika filter
+
+digunakan). Dapat include relasi (servers) juga 28 .
+Contoh:
+
+curl "https://your-panel.com/api/application/users/5?include=servers" \
+-H "Authorization: Bearer ptla_YOUR_API_KEY"
+Respons: Mirip dengan satu item di list di atas, namun tanpa array.
+• POST /api/application/users – Membuat User Baru
+Deskripsi: Menambahkan akun user baru ke panel (seperti menambah user via admin UI). Password
+akan dikirim via email atau ditetapkan.
+Body: JSON, field:
+◦ username (string, wajib) – Username unik.
+◦ email (string, wajib) – Email user (unik).
+◦ first_name & last_name (string, wajib) – Nama depan & belakang.
+◦ password (string, opsional) – Password. Jika dikosongkan, panel bisa mengirim email
+invitation.
+◦ external_id (string, opsional) – ID eksternal jika diperlukan.
+◦ root_admin (boolean, opsional) – Apakah user ini dijadikan admin panel. Default false.
+Contoh:
+curl -X POST "https://your-panel.com/api/application/users" \
+-H "Authorization: Bearer ptla_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{
+"username": "newuser",
+"email": "[email protected]",
+"first_name": "New",
+"last_name": "User",
+"password": "SecurePass123",
+"root_admin": false
+}'
+Respons: 201 Created dengan objek user baru (sama formatnya dengan GET detail user,
+termasuk ID dan UUID yang diassign). Password hanya ditampilkan jika yang Anda set
+manual (jika tidak, email invite dikirim).
+• PATCH /api/application/users/{id} – Update User
+Deskripsi: Memperbarui data akun user (bisa untuk ubah email, nama, status admin, atau reset
+password).
+Body: Hanya kirim field yang ingin diubah. Misal:
+{ "email": "[email protected]", "first_name": "Alice" } untuk update email dan
+nama depan.
+Bisa juga { "password": "NewPass123" } untuk set password baru.
+
+29
+
+Contoh:
+
+curl -X PATCH "https://your-panel.com/api/application/users/5" \
+-H "Authorization: Bearer ptla_YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{ "external_id": "ext-12345", "root_admin": true }'
+Respons: 204 No Content jika berhasil (data berubah). Error 422 jika data tidak valid (misal email
+sudah dipakai user lain).
+• DELETE /api/application/users/{id} – Hapus User
+Deskripsi: Menghapus akun user dari panel. Hati-hati: Ini biasanya membutuhkan penanganan
+server milik user tersebut (Pterodactyl biasanya meminta transfer atau hapus servernya juga).
+Pastikan tidak ada server orphan.
+Contoh:
+
+curl -X DELETE "https://your-panel.com/api/application/users/5" \
+-H "Authorization: Bearer ptla_YOUR_API_KEY"
+Respons: 204 No Content jika sukses. Error 404 jika user tidak ditemukan.
+
+Server Management (Manajemen Server)
+Endpoint administratif untuk mengelola server di panel (membuat, mengubah, menghapus server). Ini
+berbeda dengan Client API: di sini kita bisa mengatur semua server dan properti-nya.
+• GET /api/application/servers – List Semua Server
+Deskripsi: Mengambil daftar seluruh server yang ada di panel 131 . Bisa difilter/sort berdasarkan
+name, UUID, dll 132 .
+Query:
+◦ filter[name] , filter[uuid] , filter[external_id] , filter[image] – filter by
+name, uuid, external id, atau Docker image 132 .
+◦ include – dapat meliputi relasi: user , node , allocations , pack , nest , egg ,
+databases , backups , subusers , dll 133 .
+◦ sort – misal ?sort=-created_at untuk server terbaru dulu.
+Contoh:
+curl "https://your-panel.com/api/application/servers?
+include=user,node&per_page=25" \
+-H "Authorization: Bearer ptla_YOUR_API_KEY"
+134
+
+Respons: Mirip format list user, namun object "server". attributes mencakup properti
+
+30
+
+lengkap server: ID, external_id, UUID, identifier (short id), nama, description, status
+(suspended/installing), hubungan ke user pemilik, node, lokasi, nest/egg, resource limits,
+allocation utama, dll. (Cukup panjang untuk tiap server).
+• GET /api/application/servers/{id} – Detail Server
+Deskripsi: Mengambil info lengkap satu server by ID (atau external_id jika pakai filter). Bisa include
+banyak hal (lihat list include di atas).
+Contoh:
+
+curl "https://your-panel.com/api/application/servers/10?
+include=user,allocations,variables" \
+-H "Authorization: Bearer ptla_YOUR_API_KEY"
+Respons: JSON object server. Contoh field tambahan di Application API:
+◦ internal_id : ID numeric server (sama dengan {id} di endpoint ini).
+◦ external_id : jika ada.
+◦ uuid & identifier .
+◦ name , description .
+◦ status (status suspend/install).
+◦ user : ID pemilik.
+◦ node , allocation (ID allocation utama).
+◦ nest , egg (id referensi jenis server).
+◦ pack (jika memakai pack).
+◦ container (info container docker: startup command, docker image, installed status).
+◦ limits : resource limit (memory, cpu, disk, swap, io).
+◦ feature_limits : limit fitur (databases, allocations, backups).
+◦ created_at , updated_at .
+Jika include=allocations, akan ada list detail IP:port di relationships.allocations .
+Include=variables memberi variabel startup.
+• POST /api/application/servers – Membuat Server Baru
+Deskripsi: Membuat instance server baru di panel (otomatis di-deploy di node tertentu). Ini operasi
+kompleks karena perlu banyak parameter: user pemilik, node, lokasi, alokasi port, egg, limits,
+variabel environment, dll.
+Body: JSON wajib berisi struktur seperti:
+◦ name , user (ID user owner), egg (ID egg template), docker_image , startup
+(command), environment (map variabel egg),
+◦ node (ID node target), allocation (ID allocation utama), allocation.additional
+(array ID allocation tambahan opsional),
+◦ limits (object: memory, swap, disk, io, cpu),
+◦ feature_limits (object: allocations, databases, backups),
+◦ external_id (opsional).
+Contoh: (hanya ilustrasi, bukan lengkap)
+
+31
+
+{
+"name": "New Server",
+"user": 5,
+"egg": 15,
+"docker_image": "ghcr.io/pterodactyl/yolks:nodejs",
+"startup": "npm start",
+"environment": { "AUTO_UPDATE": "1", "MEMORY": "512" },
+"node": 2,
+"allocation": 55,
+"limits": { "memory": 1024, "disk": 2048, "cpu": 100, "swap": 0,
+"io": 500 },
+"feature_limits": { "databases": 2, "allocations": 3, "backups":
+5 }
+}
+Respons: 201 Created dengan data server yang dibuat (mirip GET detail server). Perhatikan
+bahwa pembuatan server akan mengantre instalasi di node (status awal installing). Pastikan
+node memiliki resources (egg, image, port, dsb) sesuai.
+• Error 422 kemungkinan jika ada field tidak valid (misal ID user/node/egg tidak ada, atau variabel
+environment kurang). Pesan detail akan menunjukkan kesalahannya.
+• PATCH /api/application/servers/{id}/details – Update Detail Server
+Deskripsi: Mengubah detail dasar server: nama, owner, atau external ID.
+Body: Bisa berisi:
+◦ name (string), user (ID user baru untuk transfer kepemilikan), external_id (string atau
+null).
+Respons: 204 jika sukses. (Jika user diubah, kepemilikan server berpindah). Error 422 jika
+misal user baru tidak valid.
+• PATCH /api/application/servers/{id}/build – Update Build Configuration
+Deskripsi: Mengubah resource limits dan alokasi server: CPU, RAM, Disk, serta penambahan/
+pengurangan port dan database limit. Juga bisa mengubah node atau memindahkan server antar
+node (fitur relocate) - biasanya dengan mengganti field allocation + node.
+Body: Field yang dapat diatur:
+◦ allocation (ID allocation utama baru, untuk pindah port utama),
+◦ memory , swap , disk , io , cpu (resource limit),
+◦ feature_limits ( allocations , databases , backups ),
+◦ add_allocations (array ID allocation tambahan untuk ditambahkan),
+◦ remove_allocations (array ID allocation untuk dihapus dari server).
+Respons: 204 jika sukses. Hal-hal yang berubah: jika pindah node, status server akan transfer.
+Jika hanya mengubah limit, langsung diterapkan.
+
+32
+
+• PATCH /api/application/servers/{id}/startup – Update Startup Command/Variables
+Deskripsi: Mengubah pengaturan startup server: perintah startup dan variabel environment.
+Body:
+◦ startup (string, opsional) – string perintah startup baru.
+◦ environment (object, opsional) – pasangan kunci-nilai variabel environment yang diupdate.
+Hanya variabel yang diisi akan diubah; bisa diisi null untuk reset ke default (kalau egg
+mendukung).
+◦ egg (integer, opsional) – ganti egg (tipe server) jika ingin migrasi jenis server; harus disertai
+variabel environment yang sesuai egg baru.
+◦ docker_image (string, opsional) – ganti image Docker (bisa juga melalui endpoint terpisah
+seperti di Client API, tapi di Application API bisa digabung di sini).
+Respons: 204 jika berhasil. Perubahan startup akan berlaku saat server start berikutnya.
+• POST /api/application/servers/{id}/suspend – Suspend Server
+Deskripsi: Menandai server sebagai suspended (server dimatikan dan user tidak bisa mengakses
+hingga unsuspend).
+Respons: 204 jika sukses. (Panel akan mematikan server dan menandainya suspended).
+• POST /api/application/servers/{id}/unsuspend – Unsuspend Server
+Deskripsi: Mengembalikan server yang disuspend menjadi aktif lagi.
+Respons: 204 jika sukses.
+• POST /api/application/servers/{id}/reinstall – Reinstall Server (Admin)
+Deskripsi: Sama seperti via client, memicu ulang instalasi server sesuai egg. Biasanya digunakan
+jika ada error atau ingin reset environment.
+Respons: 202 Accepted jika berhasil dijadwalkan (server status installing lagi).
+• DELETE /api/application/servers/{id} – Menghapus Server
+Deskripsi: Menghapus server dari panel beserta seluruh data container (file). Ini permanen.
+Query: Bisa ada query ?force=true untuk memaksa hapus tanpa memeriksa status (hati-hati).
+Respons: 204 jika sukses. (Server dihentikan dan dihapus). Error 422 kalau misal server sedang tertransfer atau sudah dihapus sebelumnya.
+
+Node Management (Manajemen Node/Wings)
+Endpoint untuk mengelola Node (server fisik/VM yang menjalankan daemon Wings):
+• GET /api/application/nodes – List Node
+Mendapatkan daftar node yang terdaftar di panel (id, nama, lokasi, FQDN, status dll).
+• GET /api/application/nodes/{id} – Detail Node
+Info detail termasuk konfigurasi, total RAM/CPU, dll. Dapat include allocations dan location 135 .
+• POST /api/application/nodes – Buat Node
+Menambahkan node baru (diperlukan data konfigurasi: name, location, FQDN/IP, port daemon,
+memory/CPU total, dll).
+• PATCH /api/application/nodes/{id} – Update Node
+Mengubah config node (nama, memory limit, etc).
+
+33
+
+• GET /api/application/nodes/{id}/configuration – Get Wings Config
+Mengambil file konfigurasi Wings (YAML) untuk node tersebut 136 . Ini yang dipakai untuk
+menginstall Wings.
+• GET /api/application/nodes/{id}/allocations – List Allocations
+Melihat semua port (allocation) yang tersedia di node tersebut dan statusnya (apakah sudah
+terpakai oleh server atau belum) 137 .
+• POST /api/application/nodes/{id}/allocations – Menambahkan Allocations
+Menambahkan satu atau beberapa allocation (IP/port) ke node (jadi pool baru yang bisa dipakai
+server). Body berisi IP, rentang port atau single port, dsb.
+• DELETE /api/application/nodes/{id}/allocations/{alloc_id} – Hapus Allocation
+Menghapus allocation tertentu dari node (hanya jika belum terpakai oleh server).
+• DELETE /api/application/nodes/{id} – Menghapus Node
+Menghapus node dari panel (hanya jika tidak ada server lagi di node tsb).
+
+Location Management (Manajemen Lokasi)
+Endpoint untuk mengatur Location yaitu kategori geografis/data center untuk mengelompokkan node:
+• GET /api/application/locations – List Locations
+Daftar lokasi (id dan short code nama).
+• GET /api/application/locations/{id} – Detail Location
+Info nama lokasi, short code, dan mungkin list node terkait (bisa pakai include=nodes).
+• POST /api/application/locations – Buat Location
+Body: short , long (nama singkat dan nama lengkap lokasi). Menambah entry lokasi baru.
+• PATCH /api/application/locations/{id} – Update Location
+Ubah nama/short code lokasi.
+• DELETE /api/application/locations/{id} – Hapus Location
+Hapus lokasi (hanya jika tidak ada node yang terikat ke situ, atau mungkin pakai force).
+
+Nests & Eggs Management (Pengelolaan Nests/Eggs)
+Endpoint (read-only) untuk mengambil data Nest (kategori server, misal "Minecraft", "Source Engine", dll)
+dan Egg (tipe server spesifik, misal "PaperMC 1.16", "CS:GO", dsb):
+• GET /api/application/nests – List Nests
+Daftar nest (id, name, description).
+• GET /api/application/nests/{id} – Detail Nest
+Info detail nest dan bisa include eggs di dalamnya.
+• GET /api/application/nests/{id}/eggs – List Eggs dalam Nest
+Daftar egg di nest tersebut (tiap egg mencakup konfigurasi startup, script instalasi, default docker
+image, variabel environment, dll).
+• GET /api/application/nests/{nest_id}/eggs/{egg_id} – Detail Egg
+Info lengkap satu egg: termasuk JSON field startup, script install (base64 encoded?), daftar variabel
+( relationships.variables mungkin), dll.
+(Note: Pterodactyl tidak mengizinkan membuat atau mengedit nest/egg via API untuk alasan keamanan;
+hanya bisa dibaca agar panel terintegrasi dapat menampilkan pilihan jenis server misalnya.)
+
+34
+
+WebSocket API – Koneksi Real-Time ke Konsol
+WebSocket API Pterodactyl memungkinkan komunikasi real-time dengan server, terutama untuk akses
+console, monitoring resource, dan kontrol power secara live 138 . Hanya tersedia untuk user (Client API)
+dan membutuhkan token khusus.
+Base URL WebSocket: Format umum: wss://<node-host>:8080/api/servers/{server.uuid}/ws
+139 . Node-host adalah alamat node Wings di mana server berjalan (bisa berbeda domain dari panel).
+
+Otentikasi WS:
+1. Dapatkan token JWT melalui endpoint HTTP Client API: GET /api/client/servers/{server}/
+websocket
+
+87 . Ini akan memberikan
+
+token (JWT) dan socket URL 86 . Token berlaku ~10 menit saja
+
+87 .
+
+2. Buka koneksi ke URL WebSocket yang diberikan menggunakan library WebSocket. Saat handshake,
+sertakan header Authorization: Bearer <token> jika library mendukung (beberapa environment
+tidak mendukung header kustom pada WS handshake). Jika tidak bisa menambah header, Pterodactyl juga
+menerima token lewat langkah berikutnya (event auth). Pastikan protokol Sec-WebSocket-Protocol diatur ke
+pterodactyl jika diperlukan (contoh pada PHP Ratchet) 140 141 .
+1. Kirim event auth: Segera setelah WS terhubung (onopen), kirim pesan JSON berisi token untuk
+autentikasi:
+{
+"event": "auth",
+"args": [ "<token JWT dari step 1>" ]
+}
+142 Ini memberi tahu daemon bahwa koneksi WS ini sah. Jika sukses, daemon akan mulai mengirim
+
+event console. Jika token salah/expired, Anda akan menerima event jwt error dan koneksi
+ditutup.
+Contoh Koneksi (JavaScript Browser):
+
+const token = "<JWT token>";
+const socketUrl = "wss://node1.example.com:8080/api/servers/<uuid>/ws";
+const socket = new WebSocket(socketUrl);
+socket.onopen = () => {
+console.log("WS connected");
+// kirim autentikasi
+socket.send(JSON.stringify({ event: "auth", args: [ token ] }));
+};
+socket.onmessage = (event) => {
+
+35
+
+const msg = JSON.parse(event.data);
+console.log("Received:", msg);
+};
+socket.onclose = (e) => {
+console.log("WS closed:", e.code, e.reason);
+};
+143
+
+144
+
+Pada Node.js (dengan library ws ) atau Python ( websockets ), konsepnya serupa: buka koneksi, lalu kirim
+event auth dengan token 145
+
+146 .
+
+Event & Pesan WebSocket: Semua pesan WS dalam format JSON dengan struktur:
+
+{ "event": "<nama_event>", "args": [ <data> ] }
+147 .
+
+Event umum yang ada 148 :
+- auth – Client → Server: mengirim token JWT untuk autentikasi 148 .
+- send command – Client → Server: mengirim perintah ke console server 148 .
+- set state – Client → Server: mengirim perintah perubahan power (start/stop/restart/kill) via WS 149 .
+- console output – Server → Client: keluaran teks di console (log) 150 .
+- status – Server → Client: update status power server (misal "running", "stopping") 151 .
+- stats – Server → Client: update statistik resource (CPU/RAM/disk/network) dalam bentuk JSON yang
+dikirim sebagai string di args 152 .
+- jwt error – Server → Client: token auth invalid atau expired 153 .
+- daemon message – Server → Client: pesan sistem (misal notifikasi internal daemon).
+Mengirim Perintah Console via WS: Setelah auth, kita bisa mengirim command:
+
+socket.send(JSON.stringify({ event: "send command", args: ["say Hello,
+world!"] }));
+Contoh di atas mengirim perintah say Hello, world! ke server Minecraft 154 .
+Menerima Output Console: Setiap output baru akan datang sebagai event console output . Contoh
+handler:
+
+36
+
+if (msg.event === "console output") {
+console.log("Console:", msg.args[0]);
+}
+155
+
+Keluaran biasanya berupa satu baris log dalam args[0] . Misal:
+
+{ "event": "console output", "args":
+["[10:30:45] [Server thread/INFO]: Starting minecraft server version 1.19.4"] }
+156 .
+
+Kontrol Power via WS: Selain melalui HTTP, kita bisa lewat WS:
+
+socket.send(JSON.stringify({ event: "set state", args: ["restart"] }));
+untuk restart server 157 . Event status akan dikirim oleh server untuk memberitahu perubahan status,
+misal:
+{ "event": "status", "args": ["running"] }
+yang berarti server sudah menyala 158 . Anda bisa memonitor event status untuk update UI (running/
+starting/stopping/offline) 159 .
+Monitoring Resource Real-time: Event stats berisi string JSON usage. Contoh menerima:
+
+if (msg.event === "stats") {
+const stats = JSON.parse(msg.args[0]);
+console.log("CPU Usage:", stats.cpu_absolute, "%");
+console.log("Memory Usage:", stats.memory_bytes, "bytes");
+}
+160 . Contoh payload stats:
+
+{ "event": "stats", "args": ["{\"memory_bytes\":
+134217728,\"memory_limit_bytes\":1073741824,\"cpu_absolute\":2.5,\"network\":
+{\"rx_bytes\":1024,\"tx_bytes\":2048},\"uptime\":3600,\"state\":\"running\",
+\"disk_bytes\":50331648}"] }
+161
+
+162
+
+– di dalam args[0] adalah string JSON, perlu parse lagi.
+
+37
+
+Penanganan Error & Reauth:
+- Jika token kedaluwarsa (10 menit), server akan mengirim event jwt error (detail biasanya "Token
+expired") dan menutup koneksi. Solusinya: panggil lagi endpoint HTTP /websocket untuk dapat token
+baru, lalu buat koneksi ulang (atau implementasi refresh token otomatis) 163 164 .
+- Selalu tangani event onclose dengan code (1006 misal jika jaringan putus) dan coba reconnect
+dengan token baru bila perlu 165 166 . Kode 1000 berarti koneksi normal ditutup, 1006 abnormal (tanpa
+pesan – sering karena masalah jaringan) – bisa auto-reconnect setelah delay.
+Catatan: WebSocket API hanya memberi akses ke server milik user. Setiap server memerlukan koneksi
+terpisah (token berbeda). Pastikan user memiliki permission control.console untuk mengirim
+perintah, control.start/stop untuk aksi power, dsb. Hak ini bisa dilihat di user_permissions pada
+endpoint Client API list servers 67 .
+
+Semua contoh di atas merupakan ringkasan dari dokumentasi resmi. Silakan rujuk pada dokumentasi
+NETVPX Pterodactyl API untuk detail lebih lanjut dan kemungkinan perubahan terbaru 167 168 . Dengan
+memanfaatkan Client API, Application API, dan WebSocket API secara tepat, Anda dapat mengintegrasikan
+Panel Pterodactyl dengan aplikasi Anda, melakukan otomatisasi manajemen server, serta membangun
+pengalaman real-time untuk monitoring dan kontrol server. Selamat mencoba! 169 170
+
+1
+
+139
+
+167
+
+169
+
+170
+
+API Documentation - Getting started | NETVPX Pterodactyl API Documentation
+
+https://pterodactyl-api-docs.netvpx.com/docs/intro
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+Authentication - Bearer Token Guide | NETVPX Pterodactyl API
+
+Documentation
+https://pterodactyl-api-docs.netvpx.com/docs/authentication
+12
+
+13
+
+15
+
+16
+
+17
+
+18
+
+19
+
+20
+
+Rate Limiting | NETVPX Pterodactyl API Documentation
+
+https://pterodactyl-api-docs.netvpx.com/docs/rate-limiting
+14
+
+25
+
+27
+
+28
+
+124
+
+125
+
+129
+
+131
+
+135
+
+136
+
+137
+
+Administrative Panel Management | NETVPX Pterodactyl API
+
+Documentation
+https://pterodactyl-api-docs.netvpx.com/docs/api/application
+21
+
+22
+
+23
+
+24
+
+26
+
+46
+
+58
+
+59
+
+122
+
+123
+
+168
+
+Client API - Pterodactyl Panel Server Management API | NETVPX
+
+Pterodactyl API Documentation
+https://pterodactyl-api-docs.netvpx.com/docs/api/client
+29
+
+30
+
+31
+
+32
+
+33
+
+34
+
+35
+
+36
+
+37
+
+38
+
+39
+
+40
+
+41
+
+42
+
+43
+
+44
+
+45
+
+Error Handling | NETVPX Pterodactyl API
+
+Documentation
+https://pterodactyl-api-docs.netvpx.com/docs/error-handling
+47
+
+48
+
+49
+
+50
+
+51
+
+52
+
+53
+
+54
+
+55
+
+56
+
+57
+
+Account Management | NETVPX Pterodactyl API Documentation
+
+https://pterodactyl-api-docs.netvpx.com/docs/v0.7/client/account
+60
+
+61
+
+62
+
+63
+
+64
+
+65
+
+66
+
+67
+
+68
+
+69
+
+70
+
+71
+
+72
+
+92
+
+93
+
+94
+
+95
+
+96
+
+97
+
+98
+
+99
+
+100
+
+101
+
+102
+
+103
+
+104
+
+73
+
+74
+
+105
+
+75
+
+106
+
+Pterodactyl API Documentation
+https://pterodactyl-api-docs.netvpx.com/docs/api/client/servers
+
+38
+
+76
+
+77
+
+78
+
+79
+
+80
+
+107
+
+108
+
+109
+
+110
+
+81
+
+82
+
+83
+
+84
+
+85
+
+86
+
+88
+
+90
+
+Server Management | NETVPX
+
+91
+
+87
+
+89
+
+138
+
+165
+
+166
+
+WebSocket API - Real-time Server Communication | NETVPX Pterodactyl API Documentation
+
+140
+
+141
+
+142
+
+143
+
+144
+
+145
+
+146
+
+147
+
+148
+
+149
+
+150
+
+151
+
+152
+
+153
+
+154
+
+155
+
+156
+
+157
+
+158
+
+159
+
+160
+
+161
+
+162
+
+163
+
+https://pterodactyl-api-docs.netvpx.com/docs/api/websocket
+111
+
+112
+
+113
+
+114
+
+115
+
+116
+
+117
+
+118
+
+119
+
+120
+
+121
+
+File Management | NETVPX Pterodactyl API Documentation
+
+https://pterodactyl-api-docs.netvpx.com/docs/api/client/files
+126
+
+127
+
+128
+
+130
+
+User Management | NETVPX Pterodactyl API Documentation
+
+https://pterodactyl-api-docs.netvpx.com/docs/api/application/users
+132
+
+133
+
+134
+
+Server Management | NETVPX Pterodactyl API Documentation
+
+https://pterodactyl-api-docs.netvpx.com/docs/api/application/servers
+
+39
+
+164
+
+

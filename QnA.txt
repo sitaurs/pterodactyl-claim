@@ -1,0 +1,205 @@
+Pertanyaan:
+
+
+## 1) Scope Produk & Kebijakan
+
+* **Definisi “anggota grup”**: apakah harus anggota **satu** grup tertentu atau boleh dari beberapa grup whitelist? Bagaimana jika user ada di banyak grup?
+* **Kebijakan “satu server aktif per anggota”**: berbasis **WA JID**, nomor E.164, atau mapping lain (mis. akun Pterodactyl)? Bagaimana kalau user ganti nomor/WA multi-device?
+* **Template**: hanya `nodejs` & `python` atau akan bertambah? Siapa yang menjaga versi/image & variabel environment tiap template?
+* **Kuota & batasan resource**: ada tier (mem/disk/cpu) berbeda per user/grup? Bagaimana cara mengubah kuota setelah server aktif?
+* **SLA**: target <2 menit dihitung dari klik “Lanjutkan” sampai server **running** (siap dipakai) atau hanya “terbuat” (installing selesai belakangan)?
+
+## 2) Identitas & Pemetaan Akun
+
+* Saat klaim, **akun Pterodactyl** dipakai yang mana: membuat user baru, memakai user global, atau memetakan ke user existing berdasarkan nomor WA?
+* Kalau membuat user baru: format **username/email** apa? Di mana **password** disimpan (atau kirim email invite)?
+* Bagaimana strategi **reconciliation** kalau di Pterodactyl sudah ada server/user dengan identifier yang sama?
+
+## 3) Verifikasi Keanggotaan via Bot WA
+
+* RPC `checkMember`: di grup mana tepatnya? Bagaimana **latency/lag** event “leave” pada WhatsApp MD?
+* Penanganan **invite link** vs ditambahkan admin: apakah ada jeda sebelum status member terdeteksi?
+* **Nomor di-ban/left sementara**: kalau user keluar-masuk dalam waktu dekat, bagaimana state klaimnya?
+
+## 4) Data & Persistensi (JSON + file lock)
+
+* Seberapa besar **volume klaim** yang diharapkan? Apakah file JSON tetap aman saat **konkurensi tinggi** (race/performance) dibanding DB (Postgres)?
+* Strategi **recovery** jika file JSON korup/partial write meski ada atomic write?
+* **Indexing** & query: kita sering cari berdasarkan `wa_jid`, `claim_id`, dan status—apakah perlu struktur terpisah?
+* **Enkripsi at rest** untuk data sensitif (password sementara, token, dll.)?
+
+## 5) Antrian, Idempoten, & Orkestrasi
+
+* Job `create-claim` dan `delete-server`: bagaimana **idempotency key**-nya? Apa yang terjadi jika job retry setelah sebagian langkah sukses?
+* **Dead-letter queue**: kapan sebuah klaim dinyatakan gagal permanen? Apakah ada **compensating actions**?
+* RPC antara Backend ↔ Bot: protokolnya apa (HTTP internal, gRPC, Redis pub/sub)? Bagaimana **auth** & **timeout**-nya?
+
+## 6) Integrasi ke Pterodactyl
+
+* Menggunakan **Application API** (admin) untuk buat/hapus server atau **Client API**? Jika Application, di mana **API key admin** disimpan & dirotasi?
+* **Penempatan node/allocations**: apakah ada **scheduler** (round-robin, least-loaded, lokasi) atau fixed node?
+* **Variabel environment** default per egg/template: siapa yang definisikan/memvalidasi? Bagaimana fallback jika egg/image berubah?
+* **Status install**: definisi “active” = server **running** atau hanya **install selesai**? Bagaimana mendeteksi kegagalan install yang lama?
+* **Port collision/kehabisan port**: strategi ketika pool port habis? Apakah klaim ditolak atau antri?
+
+## 7) Grace Period & Penghapusan
+
+* Saat menerima webhook leave: apakah selalu **jadwal hapus 4 jam** atau bisa dibatalkan jika user **join kembali** dalam window?
+* Jika job `delete-server` gagal (node down), kapan retry & kapan **suspension** vs **hard delete**?
+* Apakah sebelum hapus kita **backup** server (dan berapa lama retensinya)? Siapa yang menanggung storage?
+
+## 8) Keamanan & Kepatuhan
+
+* **HMAC webhook**: format string-to-sign, **clock skew**, dan **replay protection** (nonce/timestamp window)?
+* **CORS & rate-limit** per IP vs per user vs per nomor WA: ambang batas, burst control, dan respon error yang konsisten?
+* **Secrets management**: .env di VPS vs secret manager (rotasi, audit). Apa kebijakan **log redaction** untuk nomor WA/token?
+* Risiko **ToS WhatsApp** penggunaan library pihak ketiga (Baileys). Ada mitigasi/penilaian risiko legal?
+
+## 9) Frontend & UX
+
+* Validasi **username/password**: aturan pasti (panjang, karakter, kekuatan) & pesan error yang disepakati agar konsisten dengan backend.
+* **Polling 3 detik**: berapa **max wait/timeout** sebelum menampilkan opsi “lanjutkan via WA” atau “kami kirim notifikasi”?
+* **Resume flow**: jika tab ditutup saat PROCESSING, apakah user bisa **lanjut** dengan memasukkan WA number/claim\_id?
+* **A11y** & fallback tanpa animasi/JS berat; dukungan perangkat low-end.
+
+## 10) Observability & Operasional
+
+* **Metrik** apa yang jadi acuan: lead time klaim, success rate, median+p95 waktu aktif, kegagalan per tahap?
+* **Alerting thresholds** (job gagal beruntun, 5xx burst, waktu aktif >2 menit p95, konsumsi Redis tinggi).
+* **Runbook** insiden: langkah manual untuk membatalkan klaim yang macet, memindahkan node, atau membersihkan resource yatim.
+
+## 11) CI/CD & Lingkungan
+
+* **Staging** terisolasi (panel Pterodactyl staging, node dummy) tersedia? Data sintetis atau real?
+* Strategi **rollback** untuk Bot/Backend (PM2 + Docker) agar tidak memutus sesi WS/WA?
+* **Monorepo boundary**: paket bersama (types, schema ajv, logger)—bagaimana versi & publikasinya?
+
+## 12) Pengujian
+
+* Bagaimana **mock** Pterodactyl (HTTP & WebSocket) secara deterministik untuk integration/E2E?
+* **Load test**: target RPS, concurrency, dan skenario worst-case (spike klaim serentak)?
+* **Contract test** untuk payload WhatsApp (leave/joins) agar perubahan upstream tidak merusak alur?
+
+## 13) Edge Cases Penting
+
+* **Double-click/duplicate submit**: mekanisme deduplikasi di FE/BE?
+* User punya klaim `creating`, tapi **keluar grup** sebelum aktif—apakah proses dibatalkan atau tetap dilanjutkan?
+* User **join kembali** setelah server dihapus—apakah dia dapat **restore** atau klaim baru fresh?
+* Node **kehabisan resource** di tengah install—bagaimana fallback (auto-reschedule ke node lain atau gagal)?
+
+jawaban:
+
+#### **1) Scope Produk & Kebijakan**
+
+* **Definisi “anggota grup”:** Untuk MVP dan versi awal, definisi anggota adalah **anggota dari satu grup WhatsApp spesifik yang ID-nya didefinisikan di file `.env` bot (`TARGET_GROUP_ID`)**. Jika seorang pengguna ada di banyak grup, itu tidak memberikan keuntungan tambahan. Sistem hanya peduli pada keanggotaan di grup target tersebut. *Rencana Masa Depan: Whitelist beberapa grup bisa diimplementasikan dengan mengubah `TARGET_GROUP_ID` menjadi array di `.env` atau file konfigurasi terpisah.*
+* **Kebijakan “satu server aktif per anggota”:** Kebijakan ini berbasis **WA JID (`628... @s.whatsapp.net`)**. JID adalah identitas paling stabil yang disediakan WhatsApp. Jika pengguna ganti nomor, JID-nya akan berubah. Dalam sistem kita, ini akan dianggap sebagai identitas baru. Pengguna tersebut bisa melakukan klaim baru, dengan syarat akun lamanya (yang terhubung dengan JID lama) sudah tidak ada di grup dan servernya telah dihapus melalui alur pencabutan otomatis.
+* **Template Server:** Awalnya hanya `nodejs` dan `python`. Definisi template (termasuk Egg ID, image Docker, variabel environment default, dan startup command) akan dijaga oleh **admin sistem** dan didefinisikan dalam sebuah file konfigurasi di **backend** (misal: `config/templates.json`). Ini memastikan konsistensi dan memudahkan penambahan template baru tanpa mengubah kode.
+* **Kuota & Batasan Resource:** Untuk versi awal, akan ada **satu tier standar** yang konfigurasinya diambil dari file `.env` backend (`DEFAULT_SERVER_MEMORY`, `DEFAULT_SERVER_DISK`, `DEFAULT_SERVER_CPU`). Tidak ada tier berbeda per pengguna. Perubahan kuota setelah server aktif harus dilakukan secara **manual oleh admin** langsung dari panel Pterodactyl. *Rencana Masa Depan: Membuat endpoint API `PATCH /api/claim/:id/upgrade` yang memerlukan otorisasi admin.*
+* **SLA < 2 menit:** Target ini dihitung dari pengguna menekan tombol "Lanjutkan" di frontend hingga **server berstatus `running` dan siap menerima koneksi**. Ini berarti proses `create-claim` di backend tidak hanya menunggu Pterodactyl menyelesaikan instalasi, tetapi juga melakukan *health check* sederhana (misal: ping ke port server) sebelum menandai klaim sebagai `active`.
+
+#### **2) Identitas & Pemetaan Akun**
+
+* **Akun Pterodactyl:** Saat klaim, sistem akan **selalu membuat user Pterodactyl baru**. Ini adalah strategi terbaik untuk isolasi dan keamanan. `external_id` di Pterodactyl akan diisi dengan `wa_jid` pengguna untuk pemetaan yang solid.
+* **Format User Baru:**
+    * `username`: Diambil dari input pengguna, divalidasi (hanya alfanumerik, underscore, panjang 3-20 karakter).
+    * `email`: Dibuat secara otomatis dengan format `wa_jid@<domain.anda>`, contoh: `62812345@s.whatsapp.net@claim.example.com`. Ini memastikan email unik.
+    * `password`: Dihasilkan secara acak oleh backend (string kuat 32 karakter). Password ini **tidak disimpan**, melainkan langsung dikirim ke pengguna melalui **notifikasi WhatsApp** setelah server berhasil dibuat.
+* **Strategi Reconciliation:** Jika saat proses `create-claim`, worker menemukan sudah ada user Pterodactyl dengan `external_id` yang sama (misalnya dari proses yang gagal sebelumnya), worker akan **menggunakan user yang sudah ada tersebut** daripada membuat yang baru. Jika ada *server* dengan identifier yang sama namun tidak tercatat di `claims.json`, job `reconcile` akan menandainya sebagai "server yatim" dan mengirim alert ke admin untuk tindakan manual.
+
+#### **3) Verifikasi Keanggotaan via Bot WA**
+
+* **RPC `checkMember`:** Pengecekan dilakukan pada grup yang ID-nya didefinisikan di `TARGET_GROUP_ID`. Latensi event `leave` di Baileys MD umumnya sangat rendah (near real-time, < 5 detik). Namun, untuk RPC `checkMember` yang sifatnya *pull*, latensinya tergantung pada kecepatan Baileys mengambil daftar partisipan saat itu juga, umumnya **kurang dari 2-3 detik**. Verifikasi real-time ini krusial untuk mencegah penyalahgunaan.
+* **Invite Link vs. Ditambahkan Admin:** Keduanya akan memicu event `group-participants.update` dengan `action: 'add'`. Dari sudut pandang Baileys, tidak ada perbedaan. Bot akan langsung mendeteksi anggota baru dan memperbarui `members.json`.
+* **Nomor di-ban/left sementara:** Inilah fungsi *Grace Period*.
+    1.  Saat user keluar, klaim di `claims.json` ditandai `status: "deleting"` dan jadwal penghapusan 4 jam diatur.
+    2.  Jika user bergabung kembali dalam 4 jam, event `join` akan memicu webhook lain (atau diperiksa oleh job `reconcile`). Logika di backend akan mencari klaim dengan status `deleting` untuk `wa_jid` tersebut.
+    3.  Jika ditemukan, jadwal penghapusan di BullMQ dibatalkan, dan status di `claims.json` dikembalikan menjadi `active`. Notifikasi "Penghapusan server Anda dibatalkan" dikirim ke pengguna.
+
+#### **4. Data & Persistensi (JSON + file lock)**
+
+* **Volume & Konkurensi:** Untuk target ratusan hingga beberapa ribu klaim, file JSON **aman jika dan hanya jika** mitigasi diterapkan dengan benar. **Antrian kerja (BullMQ) adalah kunci utama**, karena ia men-serialisasi proses *write* yang krusial. Permintaan klaim yang datang bersamaan akan masuk antrian dan diproses satu per satu oleh worker. File lock adalah lapisan pengaman kedua untuk mencegah proses lain (misal: job rekonsiliasi) menulis file di saat yang bersamaan.
+* **Strategi Recovery:**
+    1.  **Penulisan Atomik:** Mencegah *partial write*.
+    2.  **Backup Otomatis:** `cron job` di server akan membuat arsip `.tar.gz` dari folder `data/` setiap 6 jam.
+    3.  **Job Rekonsiliasi:** Dalam skenario terburuk (file korup dan tidak ada backup), job ini bisa (secara terbatas) membangun kembali state `claims.json` dengan melakukan sinkronisasi dari Pterodactyl (sumber kebenaran absolut untuk server yang ada).
+* **Indexing & Query:** Untuk skala yang ditargetkan, `Array.find()` dan `Array.filter()` pada file JSON yang dibaca ke memori **sudah lebih dari cukup** dan sangat cepat. Jika jumlah klaim melebihi 10.000, migrasi ke SQLite adalah langkah logis berikutnya, dan arsitektur *repository pattern* akan memudahkannya.
+* **Enkripsi at Rest:** Untuk MVP, tidak ada data yang cukup sensitif yang disimpan secara permanen yang memerlukan enkripsi *at rest* (password dikirim lalu dilupakan). Kredensial penting (API keys, secrets) disimpan di file `.env` yang hak aksesnya dibatasi.
+
+#### **5) Antrian, Idempoten, & Orkestrasi**
+
+* **Idempotency Key:** `jobId` di BullMQ akan menggunakan `claim_id` (UUID) yang kita hasilkan. `opts: { jobId: claim_id }`. Ini secara inheren mencegah job duplikat untuk klaim yang sama. Logika di dalam worker juga harus idempoten: sebelum membuat server, ia harus memeriksa apakah server dengan `claim_id` yang sama sudah ada.
+* **Dead-letter Queue:** Setelah `N` kali percobaan gagal (misal: 3 kali, dengan jeda *backoff* eksponensial), BullMQ akan memindahkan job ke antrian `failed`. Ini akan memicu **alert ke admin (Discord/Slack)**. Tidak ada *compensating actions* otomatis. Kegagalan permanen memerlukan intervensi manual untuk menganalisis masalah (misal: node Pterodactyl penuh).
+* **RPC Backend ↔ Bot:** Menggunakan **HTTP internal** melalui Docker network atau localhost. Ini adalah protokol paling sederhana dan stateless.
+    * **Autentikasi:** Cukup dengan header `X-Internal-Secret` sederhana yang nilainya dari `.env`, karena komunikasi terjadi di lingkungan server yang terpercaya.
+    * **Timeout:** Timeout agresif di sisi pemanggil (backend), misal 5 detik. Jika bot tidak merespons, klaim digagalkan dengan log "Bot tidak responsif".
+
+#### **6) Integrasi ke Pterodactyl**
+
+* **API yang Digunakan:** **Hanya Application API**. Ini memberikan kontrol administratif penuh. API Key (`ptla_...`) disimpan **hanya di file `.env` backend** dan tidak boleh bocor kemana pun. Kebijakan rotasi kunci: manual setiap 6 bulan atau jika ada indikasi kebocoran.
+* **Penempatan Node/Allocations:** Untuk MVP, penempatan bersifat **statis**, menggunakan `PTERODACTYL_LOCATION_ID` dari `.env`. Pterodactyl akan secara otomatis memilih alokasi (port) yang tersedia di node tersebut.
+* **Variabel Environment Default:** Didefinisikan dan divalidasi oleh **backend** dalam file `config/templates.json`. Jika egg atau image di Pterodactyl berubah (misal: variabel environment baru ditambahkan), file konfigurasi di backend ini harus diperbarui oleh admin.
+* **Status Install "Active":** Definisi "active" adalah ketika API Pterodactyl melaporkan status server `running` **DAN** sebuah *health check* (TCP ping ke port utama server) berhasil dilakukan oleh worker. Ini memastikan server tidak hanya "ada" tapi juga "siap pakai". Kegagalan install yang lama (timeout > 10 menit) akan mengubah status klaim menjadi `failed`.
+* **Port Collision/Kehabisan Port:** Pterodactyl menangani ini secara internal. Jika tidak ada alokasi yang tersedia di node yang ditentukan, panggilan API untuk membuat server akan **gagal**. Worker akan menangkap error ini, mengubah status klaim menjadi `failed`, dan mengirim alert ke admin "Node Penuh / Kehabisan Alokasi". Klaim tidak akan masuk antrian tunggu.
+
+#### **7) Grace Period & Penghapusan**
+
+* **Pembatalan Grace Period:** Ya, **selalu bisa dibatalkan**. Jika pengguna bergabung kembali saat status klaimnya `deleting`, event `join` dari bot akan memicu logika di backend untuk mencari klaim `deleting` tersebut, membatalkan job `delete-server` di BullMQ, dan mengembalikan statusnya ke `active`.
+* **Gagal Job Delete-Server (Node Down):** BullMQ akan mencoba ulang job sesuai jadwal `retry`. Jika setelah beberapa kali percobaan node masih down dan job masuk ke antrian `failed`, sebuah **alert prioritas tinggi** akan dikirim ke admin. Tidak ada penghapusan paksa. Job akan tetap di antrian `failed` sampai admin memperbaiki masalah node dan me-retry job secara manual.
+* **Backup Server Sebelum Hapus:** **Tidak.** Kebijakan default adalah *hard delete*. Fitur backup sebelum penghapusan adalah fitur premium yang kompleks dan membutuhkan biaya penyimpanan signifikan. Ini di luar scope MVP.
+
+#### **8) Keamanan & Kepatuhan**
+
+* **HMAC Webhook:** `string-to-sign` akan menjadi `timestamp + '.' + JSON.stringify(body)`. Backend akan memvalidasi tanda tangan dan juga memeriksa `timestamp`, menolak permintaan jika lebih tua dari **60 detik** untuk mencegah *replay attack*.
+* **CORS & Rate-Limit:** CORS diatur ketat hanya untuk domain frontend. Rate-limit diterapkan di backend per-IP (`express-rate-limit`) untuk endpoint publik (`POST /api/claim`), misalnya **20 permintaan per menit**.
+* **Secrets Management:** Untuk implementasi awal, `.env` yang dikelola dengan hak akses ketat di VPS sudah cukup. Untuk produksi skala besar, disarankan migrasi ke HashiCorp Vault atau AWS Secrets Manager. Log akan secara otomatis me-redact (menyensor) field yang mengandung kata kunci seperti `password`, `token`, `wa_number`, dan `secret`.
+* **Risiko ToS WhatsApp:** Ini adalah **risiko bisnis yang diterima**. Mitigasi:
+    1.  Gunakan nomor WA yang didedikasikan khusus untuk bot (bukan nomor pribadi).
+    2.  Bot tidak boleh melakukan aktivitas keluar (spam/iklan), hanya merespons dan mengirim notifikasi transaksional.
+    3.  Siapkan prosedur darurat jika nomor diblokir (mengganti nomor dan memperbarui sesi Baileys).
+
+#### **9) Frontend & UX**
+
+* **Validasi Username/Password:** Aturan didefinisikan di satu tempat (misal: `packages/types-and-schemas` di monorepo) dan digunakan oleh frontend (untuk UX) dan backend (untuk keamanan). Aturan: username (alfanumerik + `_`, 3-20 karakter), password (minimal 8 karakter, mengandung huruf besar, huruf kecil, dan angka).
+* **Polling Timeout:** Setelah **3 menit** polling, jika status masih `creating`, frontend akan berhenti polling dan menampilkan pesan: "Proses pembuatan server memakan waktu lebih lama dari biasanya. Anda bisa menutup halaman ini, kami akan mengirim notifikasi via WhatsApp jika sudah selesai."
+* **Resume Flow:** Ya. Saat halaman dimuat, frontend akan memeriksa `localStorage` untuk `claim_id`. Jika ada, ia akan langsung memanggil `GET /api/claim/:id/status` dan melompat ke state `PROCESSING` atau hasil akhir, memastikan pengguna tidak kehilangan progres jika tidak sengaja menutup tab.
+* **A11y & Fallback:** Desain menggunakan *semantic HTML*. Animasi Framer-Motion akan menghormati setelan `prefers-reduced-motion` di browser pengguna. Next.js SSR memastikan konten dasar dapat diakses bahkan sebelum JS dimuat penuh.
+
+#### **10) Observability & Operasional**
+
+* **Metrik Acuan:**
+    * **Lead Time Klaim:** Waktu dari `POST /api/claim` hingga status `active` (Histogram).
+    * **Success Rate:** Persentase job `create-claim` yang berakhir `active` vs `failed` (Counter).
+    * **API Latency:** p95 dan p99 untuk `/api/claim` (Summary).
+    * **Queue Health:** Jumlah job di antrian `waiting`, `active`, dan `failed` (Gauge).
+* **Alerting Thresholds:**
+    * Job `create-claim` atau `delete-server` gagal 3 kali berturut-turut.
+    * Jumlah job di antrian `failed` > 0.
+    * Latensi API p99 > 3 detik selama lebih dari 5 menit.
+    * Penggunaan memori Redis > 80%.
+* **Runbook Insiden:** Sebuah file `RUNBOOK.md` akan dibuat, berisi langkah-langkah seperti:
+    * **Insiden: Klaim Macet di Status `creating`**.
+    * **Langkah:** 1. Cari `claim_id` di log. 2. Cek status job di BullMQ UI. 3. Jika job tidak ada/gagal, periksa log worker untuk error Pterodactyl. 4. Cek panel Pterodactyl untuk melihat apakah server/user sempat dibuat. 5. Jika perlu, perbarui `claims.json` secara manual ke status `failed` dan hapus resource yatim di Pterodactyl.
+
+#### **11) CI/CD & Lingkungan**
+
+* **Staging Terisolasi:** **Wajib ada**. Ini akan menunjuk ke panel Pterodactyl *staging* yang terpisah, atau setidaknya menggunakan node *dummy* di panel produksi yang dikhususkan untuk pengujian. Data yang digunakan adalah **data sintetis**.
+* **Strategi Rollback:** Backend dan Bot di-deploy sebagai image Docker dengan tag versi (misal: `myapp-backend:1.2.1`). PM2 akan menjalankan image ini. Untuk rollback, cukup deploy ulang dengan tag versi sebelumnya. `pm2 reload` memungkinkan *zero-downtime updates*.
+* **Monorepo Boundary:** `packages/` akan berisi:
+    * `types`: Semua interface TypeScript yang dibagikan.
+    * `schemas`: Skema validasi Ajv untuk data JSON dan body API.
+    * `utils`: Fungsi umum seperti normalisasi nomor atau kalkulator HMAC.
+
+#### **12) Pengujian**
+
+* **Mock Pterodactyl API:** Menggunakan `nock` di lingkungan pengujian Node.js. Saat Supertest menjalankan tes integrasi pada `/api/claim`, semua panggilan `axios` ke Pterodactyl akan dicegat oleh `nock` yang mengembalikan respons yang telah ditentukan (sukses, gagal, node penuh, dll).
+* **Load Test:** Menggunakan `k6`. Skenario: mensimulasikan 50 pengguna mencoba klaim dalam rentang waktu 1 menit (target ~0.8 RPS), untuk memastikan tidak ada *race condition* atau penurunan performa signifikan.
+* **Contract Test:** Menggunakan **Pact**. Bot akan menjadi *Consumer*, dan Backend akan menjadi *Provider* untuk webhook. Ini memastikan bahwa perubahan pada ekspektasi payload di backend tidak akan merusak Bot, dan sebaliknya.
+
+#### **13) Edge Cases Penting**
+
+* **Double-click/Duplicate Submit:** Diatasi di 2 level:
+    1.  **Frontend:** Tombol submit di-disable saat state `SUBMITTING`.
+    2.  **Backend:** `jobId` di BullMQ yang menggunakan `claim_id` mencegah job yang sama dieksekusi dua kali.
+* **User Keluar Grup Saat Status `creating`:** Job `create-claim` pada setiap langkah pentingnya harus memeriksa ulang status klaim dari `claims.json`. Jika saat akan membuat server, ia melihat statusnya telah diubah menjadi `deleting` oleh webhook, job harus segera berhenti, membersihkan resource yang mungkin sudah dibuat (misal: user Pterodactyl), lalu menandai dirinya selesai.
+* **User Join Kembali Setelah Server Dihapus:** Diperlakukan sebagai **klaim baru yang fresh**. Catatan klaim lama di `claims.json` sudah berstatus `deleted`. Ia berhak untuk klaim lagi.
+* **Node Penuh di Tengah Install:** API Pterodactyl akan mengembalikan error saat pembuatan server. Worker akan menangkap error ini, mengubah status klaim menjadi `failed`, dan mengirim alert. **Tidak ada auto-reschedule ke node lain untuk MVP**; ini memerlukan logika *scheduler* yang kompleks.
