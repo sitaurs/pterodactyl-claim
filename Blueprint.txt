@@ -1,0 +1,234 @@
+
+
+### **Blueprint Proyek v2.0: Panduan Implementasi End-to-End (WA-Ptero-Claim)**
+
+**Dokumen:** Master Blueprint & Desain Arsitektur Lengkap  
+**Versi:** 2.0 (Definitif)
+
+#### **Bagian 1: Visi, Filosofi, dan Sasaran Proyek**
+
+  * **Visi:** Menciptakan sebuah platform *self-service* yang berfungsi sebagai gerbang eksklusif, modern, dan andal bagi anggota komunitas untuk mendapatkan sumber daya server Pterodactyl secara otomatis, memberikan pengalaman pengguna yang terasa premium dan tanpa friksi.
+  * **Filosofi Desain:**
+    1.  **Full JavaScript Ecosystem:** Memanfaatkan TypeScript di seluruh tumpukan teknologi (Frontend, Backend, Bot) untuk konsistensi, keamanan tipe, dan kemudahan pengembangan.
+    2.  **Robust & Resilient:** Sistem dirancang untuk menangani kegagalan secara anggun, dengan mekanisme *retry*, antrian kerja, dan penulisan data yang aman.
+    3.  **Elegant User Experience:** Antarmuka bukan hanya fungsional, tetapi juga indah secara visual, reaktif, dan intuitif, menggunakan prinsip desain modern.
+  * **Sasaran Kunci (Definition of Done):**
+      * **Otomatisasi Penuh:** Proses klaim hingga pencabutan 100% otomatis.
+      * **Keadilan:** Kebijakan ketat satu server aktif per anggota grup.
+      * **Performa:** Proses klaim hingga server aktif \< 2 menit.
+      * **Grace Period:** Server dihapus dalam 4 jam setelah pengguna keluar grup.
+      * **Keamanan:** Tidak ada kredensial yang terekspos, komunikasi antar layanan diamankan.
+
+-----
+
+#### **Bagian 2: Arsitektur Sistem & Tumpukan Teknologi**
+
+  * **Arsitektur Makro:** Tetap menggunakan arsitektur 3 komponen (Frontend, Backend, Bot) yang terpisah untuk modularitas dan skalabilitas.
+  * **Tumpukan Teknologi Lengkap:**
+      * **Frontend:** Next.js 14, TypeScript, React, Tailwind CSS, Framer-Motion, Axios.
+      * **Backend:** Node.js 20 LTS, Express 4, TypeScript, BullMQ (dengan Redis), Winston (Logging), Ajv (Validasi Skema).
+      * **Bot WhatsApp:** Node.js 20 LTS, `@whiskeysockets/baileys` (Multi-Device), TypeScript, Axios.
+      * **Penyimpanan Data:** File JSON dengan Penulisan Atomik & Penguncian File (`proper-lockfile`).
+      * **Orkestrasi & CI/CD:** Monorepo dengan Turborepo & `pnpm`, GitHub Actions, Vercel (Frontend), Docker + PM2 (Backend/Bot di VPS).
+
+-----
+
+#### **Bagian 3: Konfigurasi Lingkungan (`.env`)**
+
+Setiap komponen memiliki file `.env` sendiri untuk fleksibilitas maksimal. (Detail lengkap seperti pada v1.7, mencakup konfigurasi Pterodactyl, Redis, Secret, Grace Period, dll. untuk setiap komponen).
+
+-----
+
+#### **Bagian 4: Desain & Kontrak API Backend**
+
+Ini adalah definisi bagaimana Frontend dan Bot berkomunikasi dengan Backend.
+
+  * **Endpoint 1: `POST /api/claim`**
+
+      * **Deskripsi:** Memulai proses klaim server baru.
+      * **Request Body (`application/json`):**
+        ```json
+        {
+          "username": "string (required, alphanumeric)",
+          "password": "string (required, min 8 chars)",
+          "wa_number_e164": "string (required, format +62...)",
+          "template": "string (required, 'nodejs' atau 'python')"
+        }
+        ```
+      * **Respons Sukses (`202 Accepted`):**
+        ```json
+        { "claim_id": "string (uuid-v4)" }
+        ```
+      * **Respons Error:**
+          * `400 Bad Request`: Input tidak valid. `{ "error": "Pesan validasi" }`
+          * `403 Forbidden`: Bukan anggota grup. `{ "error": "Nomor Anda tidak ditemukan..." }`
+          * `409 Conflict`: Sudah pernah klaim. `{ "error": "Anda sudah memiliki klaim aktif." }`
+          * `500 Internal Server Error`: Kesalahan server. `{ "error": "Terjadi kesalahan internal." }`
+
+  * **Endpoint 2: `GET /api/claim/:id/status`**
+
+      * **Deskripsi:** Digunakan oleh Frontend untuk polling status proses klaim.
+      * **Parameter URL:** `:id` adalah `claim_id` yang diterima dari endpoint klaim.
+      * **Respons Sukses (`200 OK`):**
+        ```json
+        {
+          "status": "string ('creating'|'active'|'failed'|...)",
+          "message": "string (Pesan status, misal: 'Menginstal server...')"
+        }
+        ```
+      * **Respons Error (`404 Not Found`):** `{ "error": "Claim ID tidak ditemukan." }`
+
+  * **Endpoint 3: `POST /api/whatsapp-webhook`**
+
+      * **Deskripsi:** Menerima notifikasi dari Bot saat anggota keluar.
+      * **Headers:** `X-Signature: string (HMAC-SHA256 dari body)`
+      * **Request Body (`application/json`):**
+        ```json
+        { "wa_jid": "string", "timestamp": "string (ISO 8601)" }
+        ```
+      * **Respons Sukses (`204 No Content`):** Tidak ada body, menandakan webhook diterima dan diproses.
+      * **Respons Error:** `401 Unauthorized` (Tanda tangan tidak valid), `400 Bad Request` (Body tidak valid).
+
+-----
+
+#### **Bagian 5: Desain Antarmuka & Pengalaman Pengguna (UI/UX) - Rinci**
+
+**Filosofi:** Menciptakan alur yang mulus dan memukau, mengubah proses yang berpotensi membosankan menjadi pengalaman interaktif.
+
+**A. Tema Visual & Animasi:**
+
+  * **Estetika:** *Glassmorphism* di atas latar gradien gelap `#1a1a2e` → `#16213e`.
+  * **Animasi:** Semua elemen menggunakan *Framer Motion* untuk transisi `opacity` dan `y-axis`. Interaksi seperti hover pada tombol akan memicu efek cahaya (`box-shadow`) dan perbesaran (`scale`).
+
+**B. State Machine Halaman Klaim:**
+Halaman utama akan dikelola sebagai sebuah *state machine* untuk mengontrol apa yang dilihat pengguna.
+
+  * **State 1: `IDLE` (Formulir Awal)**
+
+      * **Tampilan:** Menampilkan Hero Section dan Formulir Klaim (Langkah 1). Tombol "Lanjutkan" aktif hanya jika semua input valid.
+      * **Aksi Pengguna:** Mengisi formulir.
+      * **Transisi:** `onClick` pada tombol "Lanjutkan" memicu transisi ke state `SUBMITTING`.
+
+  * **State 2: `SUBMITTING` (Mengirim Permintaan Awal)**
+
+      * **Tampilan:** Tombol "Lanjutkan" menampilkan ikon spinner dan menjadi non-aktif untuk mencegah klik ganda. Seluruh form menjadi semi-transparan.
+      * **Proses:** Frontend mengirim `POST /api/claim`.
+      * **Transisi:**
+          * Jika `202 Accepted` diterima, transisi ke state `PROCESSING` dengan membawa `claim_id`.
+          * Jika error (`4xx` atau `5xx`), transisi ke state `ERROR` dengan pesan dari API.
+
+  * **State 3: `PROCESSING` (Proses Berjalan)**
+
+      * **Tampilan:** Antarmuka formulir beranimasi keluar, digantikan oleh panel status dengan timeline vertikal yang dinamis.
+      * **Proses:** Frontend memulai interval polling ke `GET /api/claim/:id/status` setiap 3 detik.
+      * **Update UI:** Setiap respons dari polling memperbarui teks dan ikon di timeline (misal, `[IKON LOADING]` -\> `[✓ HIJAU]`).
+      * **Transisi:**
+          * Jika status `active` diterima, transisi ke state `SUCCESS`.
+          * Jika status `failed` diterima, transisi ke state `ERROR`.
+
+  * **State 4: `SUCCESS` (Hasil Sukses)**
+
+      * **Tampilan:** Menampilkan kartu sukses beranimasi dengan pesan "Selamat\! Server Anda Siap," detail notifikasi WA, dan tombol "Buka Panel".
+      * **Proses:** Interval polling dihentikan.
+
+  * **State 5: `ERROR` (Hasil Gagal)**
+
+      * **Tampilan:** Menampilkan kartu error dengan pesan yang diterima dari API.
+      * **Aksi Pengguna:** Tombol "Coba Lagi".
+      * **Transisi:** `onClick` pada "Coba Lagi" akan mereset semua data dan kembali ke state `IDLE`.
+
+-----
+
+#### **Bagian 6: Alur Kerja Sistematis (Lengkap dengan Pseudo-logika)**
+
+**Alur 1: `handleClaimRequest(request)` di Backend**
+
+```pseudocode
+FUNCTION handleClaimRequest(request):
+  // 1. Validasi & Normalisasi
+  data = validateAndNormalize(request.body)
+  
+  // 2. Verifikasi Keanggotaan Real-time
+  isMember = await rpc.call('bot', 'checkMember', { jid: data.wa_jid })
+  ASSERT isMember IS TRUE, else THROW 403_ERROR
+  
+  // 3. Kunci File untuk Keamanan
+  lock = await acquireLock('claims.json')
+  
+  TRY
+    // 4. Cek Duplikasi
+    claims = await readJsonFile('claims.json')
+    hasActiveClaim = claims.find(c => c.wa_jid == data.wa_jid && (c.status == 'active' || c.status == 'creating'))
+    ASSERT hasActiveClaim IS NULL, else THROW 409_ERROR
+
+    // 5. Buat Entri Awal
+    claimId = generateUUID()
+    newClaim = createInitialClaimRecord(claimId, data)
+    claims.push(newClaim)
+    await writeJsonAtomically('claims.json', claims)
+
+    // 6. Masukkan ke Antrian
+    await jobQueue.add('create-claim', { claimId: claimId })
+
+    // 7. Beri Respons ke Klien
+    RETURN 202, { claim_id: claimId }
+  
+  FINALLY
+    // 8. Selalu Lepaskan Kunci
+    releaseLock(lock)
+  END TRY
+END FUNCTION
+```
+
+**Alur 2: `handleLeaveWebhook(request)` di Backend**
+
+```pseudocode
+FUNCTION handleLeaveWebhook(request):
+  // 1. Verifikasi Tanda Tangan
+  ASSERT isValidHmacSignature(request) IS TRUE, else THROW 401_ERROR
+  
+  // 2. Ambil data & Kunci File
+  data = request.body
+  lock = await acquireLock('claims.json')
+
+  TRY
+    // 3. Cari & Perbarui Klaim
+    claims = await readJsonFile('claims.json')
+    claimIndex = claims.findIndex(c => c.wa_jid == data.wa_jid && c.status == 'active')
+    
+    IF claimIndex > -1 THEN
+      // 4. Jadwalkan Penghapusan
+      claims[claimIndex].status = 'deleting'
+      claims[claimIndex].deletion_scheduled_at = now() + 4 * HOURS
+      await writeJsonAtomically('claims.json', claims)
+
+      // 5. Masukkan Job dengan Penundaan
+      await jobQueue.add('delete-server', { claimId: claims[claimIndex].claim_id }, { delay: 4 * HOURS })
+      
+      // 6. Kirim Notifikasi Peringatan
+      await rpc.call('bot', 'sendMessage', { jid: data.wa_jid, message: "Peringatan penghapusan..." })
+    END IF
+  
+  FINALLY
+    releaseLock(lock)
+  END TRY
+
+  RETURN 204
+END FUNCTION
+```
+
+-----
+
+#### **Bagian 7: Rencana Implementasi, Pengujian, Keamanan, & Operasional**
+
+  * **Implementasi:** Ikuti fase-fase yang telah ditentukan (Persiapan -\> Backend/Bot -\> Frontend -\> Integrasi -\> Deployment), dengan fokus pada implementasi detail dari setiap alur kerja di atas.
+  * **Pengujian:**
+      * **Unit Test (Jest):** Untuk fungsi murni seperti normalisasi nomor, validasi skema, dan kalkulasi HMAC.
+      * **Integration Test (Supertest):** Untuk setiap endpoint API, mem-mock panggilan ke Pterodactyl dan Bot. Pastikan semua kode status dan body respons sesuai kontrak.
+      * **End-to-End Test (Playwright):** Buat skrip yang mensimulasikan seluruh alur pengguna: membuka web, mengisi form, menunggu timeline selesai, dan memverifikasi hasilnya.
+  * **Keamanan:** Terapkan semua poin keamanan yang telah disebutkan: CORS ketat, rate-limit, verifikasi HMAC, dan manajemen *secret* melalui `.env`.
+  * **Operasional:**
+      * **Backup:** Siapkan `cron job` untuk membuat backup `tar.gz` dari folder `data/` setiap 6 jam.
+      * **Monitoring:** Konfigurasi Winston untuk mengirim log ke layanan eksternal (Loki/Grafana), dan siapkan alert di Discord/Slack untuk job yang gagal atau error 5xx yang berulang.
+      * **CI/CD:** Atur pipeline di GitHub Actions untuk otomatisasi linting, testing, building, dan deployment ke Vercel (FE) dan VPS (BE/Bot).
+

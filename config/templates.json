@@ -1,0 +1,36 @@
+{
+  "nodejs": {
+    "eggId": 123,
+    "dockerImage": "ghcr.io/pterodactyl/yolks:nodejs_18",
+    "startupCommand": "npm start",
+    "environment": {
+      "NODE_ENV": "production",
+      "SERVER_PORT": "${SERVER_PORT}"
+    },
+    "healthcheck": {
+      "type": "tcp",
+      "portEnv": "SERVER_PORT",
+      "timeoutSec": 5,
+      "retries": 3,
+      "retryDelaySec": 2
+    },
+    "useResourceConfig": true
+  },
+  "python": {
+    "eggId": 124,
+    "dockerImage": "ghcr.io/pterodactyl/yolks:python_3.11",
+    "startupCommand": "python main.py",
+    "environment": {
+      "PYTHONUNBUFFERED": "1",
+      "SERVER_PORT": "${SERVER_PORT}"
+    },
+    "healthcheck": {
+      "type": "tcp", 
+      "portEnv": "SERVER_PORT",
+      "timeoutSec": 5,
+      "retries": 3,
+      "retryDelaySec": 2
+    },
+    "useResourceConfig": true
+  }
+}

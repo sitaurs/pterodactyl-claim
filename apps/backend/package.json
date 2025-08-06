@@ -1,0 +1,41 @@
+{
+  "name": "@wa-ptero-claim/backend",
+  "version": "1.0.0",
+  "description": "Backend API server for WA-Ptero-Claim system",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/api/index.ts",
+    "dev:worker": "tsx watch src/worker/index.ts",
+    "start": "node dist/api/index.js",
+    "start:worker": "node dist/worker/index.js",
+    "lint": "eslint src --ext .ts",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@wa-ptero-claim/shared-types": "workspace:*",
+    "@wa-ptero-claim/validation-schemas": "workspace:*",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "bullmq": "^4.15.0",
+    "ioredis": "^5.3.2",
+    "axios": "^1.6.5",
+    "winston": "^3.11.0",
+    "proper-lockfile": "^4.1.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/proper-lockfile": "^4.1.4",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0"
+  }
+}

@@ -1,0 +1,165 @@
+
+
+## 1) Decision Log (ringkas & actionable)
+
+> Format: **\[DL-XX] Keputusan — Alasan — Dampak — Tindak Lanjut**
+
+* **\[DL-01] Sumber identitas = WA JID** — paling stabil dari sisi Bot — memastikan 1 server/anggota — *N/A*.
+* **\[DL-02] Keanggotaan = 1 grup target** (`TARGET_GROUP_ID`) — menyederhanakan aturan — validasi cepat — rencana whitelist multi-grup nanti.
+* **\[DL-03] “Satu server aktif” per JID** — mencegah abuse — perlu rekonsiliasi saat nomor ganti — dokumentasikan konsekuensi JID berganti.
+* **\[DL-04] API = Pterodactyl Application API** — kontrol penuh — simpan key di `.env` + rotasi 6 bulanan — audit akses.
+* **\[DL-05] User Ptero selalu dibuat (external\_id=wa\_jid)** — isolasi & keamanan — perlu rekonsiliasi jika objekt sudah ada — implement detect & reuse.
+* \*\*\[DL-06] Email Ptero = **`hash(wa_jid)@claim.example.com`** — menghindari `@` ganda — valid RFC — update implementasi.
+* **\[DL-07] Template awal: nodejs, python** di `config/templates.json` — versi & env dikontrol backend — tambah governance untuk perubahan.
+* \*\*\[DL-08] Penempatan node statis; **allocations dipilih eksplisit** — hindari gagal auto-assign — buat pemilih alokasi “unassigned”.
+* **\[DL-09] Status `active` = install selesai **dan** health-check TCP sukses** — memastikan siap pakai — definisikan `healthcheck.port`/`portEnv`.
+* **\[DL-10] Grace 4 jam; join membatalkan hapus** — pengalaman aman — **persist `delete_job_id`** untuk cancel.
+* **\[DL-11] Webhook HMAC dengan `timestamp.body`** — anti-replay (window 60s) — butuh NTP sinkron — sediakan nonce cache (opsional).
+* **\[DL-12] Rate limit per-IP + per-JID** — hindari NAT false positive — konfigurasi: IP 20/min, JID 5/min (awal).
+* **\[DL-13] Data = JSON + atomic write + lock** — cukup untuk skala MVP — backup/restore + job reconcile — siapkan rute migrasi ke SQLite jika >10k klaim.
+* **\[DL-14] SLA < 2 menit sampai running** — perlukan image pre-baked/instal minimal — ukur p95 & p99.
+* **\[DL-15] Notifikasi rahasia (password awal) via WA** — tidak disimpan — redaksi log — arahkan user ganti sandi setelah login.
+* **\[DL-16] Observability Prometheus + alert dasar** — metrik klaim, queue, API latency — dashboard Grafana.
+* **\[DL-17] Staging terisolasi** — panel/node dummy — data sintetis — kontrak E2E wajib lulus sebelum prod.
+
+---
+
+## 2) Definition of Done (per fitur/komponen)
+
+### 2.1 Backend API
+
+* **POST `/api/claim`**
+
+  * Validasi Ajv (username, password, wa\_number\_e164, template).
+  * Cek `checkMember(wa_jid)` (HTTP internal + `X-Internal-Secret`).
+  * Buat `claim_id` (UUID v4), tulis `claims.json` atomik, enqueue `create-claim` dengan `jobId=claim_id`.
+  * Respons **202** `{ claim_id }`. Error: 400/403/409/500 sesuai kontrak.
+  * **Log**: tanpa bocor wa/password/token.
+* **GET `/api/claim/:id/status`**
+
+  * Kembalikan `status` ∈ {`creating`,`active`,`failed`,`deleting`,`deleted`} + `message`.
+  * 404 bila tak ada.
+* **POST `/api/whatsapp-webhook`** (join & leave)
+
+  * Header `X-Signature` (HMAC SHA256) + `X-Timestamp`.
+  * Tolak jika signature salah / replay > 60s (atau nonce duplikat).
+  * **leave**: set `deleting`, jadwalkan job hapus +4h, simpan `delete_job_id`, kirim peringatan WA.
+  * **join**: jika ada klaim `deleting`, batalkan job via `delete_job_id`, set `active`, kirim pembatalan penghapusan.
+
+### 2.2 Worker: Create-Claim
+
+* Idempoten (cek ada `server_id`/`user_id` dulu).
+* **Langkah:**
+
+  1. **Create/Reuse user** (external\_id=wa\_jid; email=hash(wa\_jid)@…; password acak 32).
+  2. **Pilih allocation free** (node/egg/loc sesuai template).
+  3. **Create server** (env & startup dari template).
+  4. Tunggu status install; **health-check TCP** ke port (port env atau angka).
+  5. Update claim → `active`, persist `server_id|user_id|allocation_id`.
+  6. Kirim WA: kredensial panel + instruksi ganti password.
+* Error map jelas (node penuh, alokasi habis, egg invalid) → `failed` + alert.
+
+### 2.3 Worker: Delete-Server
+
+* Ambil `server_id` & `user_id`.
+* Suspend (opsional) → Delete server → Delete user jika tidak ada server lain.
+* Idempoten (aman dipanggil ulang).
+* Update claim → `deleted`, hapus `delete_job_id`.
+
+### 2.4 Data Layer
+
+* `claims.json` berisi minimal:
+
+  ```json
+  {
+    "claim_id": "", "wa_jid": "", "status": "",
+    "user_id": "", "server_id": "", "allocation_id": "",
+    "deletion_scheduled_at": "", "delete_job_id": "",
+    "created_at": "", "updated_at": "", "last_event_at": ""
+  }
+  ```
+* Atomic write + `proper-lockfile`; backup `tar.gz` /6 jam; restore runbook.
+
+### 2.5 Keamanan
+
+* CORS: allow origin FE saja.
+* Rate limit: IP 20/min; JID 5/min; burst ditangani.
+* Redaksi log field sensitif.
+* `.env` permission 600; rotasi key Ptero 6 bulanan.
+
+### 2.6 Frontend (Next.js)
+
+* State machine: `IDLE → SUBMITTING → PROCESSING → (SUCCESS|ERROR)`.
+* Polling status /3s; **timeout 3 menit** → tampilkan “kami kirim WA saat selesai”.
+* **Resume** dari `localStorage.claim_id`.
+* Validasi form via skema bersama (packages/schemas).
+* A11y + `prefers-reduced-motion`.
+
+### 2.7 Observability
+
+* Prometheus `/metrics`:
+
+  * Histogram lead time klaim.
+  * Counter success/failed create/delete.
+  * Summary p95/p99 latency API.
+  * Gauge queue depth & Redis mem.
+* Alert: job failed>0; p99>3s (5m); Redis>80%.
+
+### 2.8 CI/CD & Staging
+
+* GitHub Actions: lint, test, build, dockerize, deploy (FE ke Vercel; BE/Bot ke VPS).
+* PM2 reload zero-downtime; rollback via tag image.
+* Staging terpisah wajib; semua E2E lulus di staging.
+
+### 2.9 Pengujian
+
+* Unit: skema, normalisasi nomor, HMAC.
+* Integration: Supertest + `nock` Pterodactyl (success/alloc habis/egg invalid).
+* E2E: Playwright alur lengkap.
+* Load: k6 spike 50 user/menit, p95 < 2 menit end-to-end.
+* Contract test (Pact): webhook join/leave.
+
+---
+
+## 3) Checklist Go/No-Go
+
+### 3.1 Pra-Kickoff Sprint (semua **harus** centang)
+
+* [ ] Panel **staging** aktif + node dummy siap.
+* [ ] **API key** Pterodactyl (staging) tersedia & diuji (list nodes/eggs).
+* [ ] `templates.json` fix (eggId, image, env, **healthcheck port**).
+* [ ] Strategi **pemilih allocation** siap (endpoint & filter “unassigned”).
+* [ ] Secret `.env` untuk BE & Bot terpasang (termasuk `X-Internal-Secret`).
+* [ ] Dashboard Grafana + Prometheus scrape job OK.
+* [ ] Struktur `claims.json` final + policy backup/restore.
+* [ ] Skema Ajv bersama dipublikasi (packages/schemas v1.0.0).
+* [ ] Runbook awal (`RUNBOOK.md`) dibuat.
+
+### 3.2 Exit Criteria Sprint 1 (Go untuk pilot tertutup)
+
+* [ ] E2E (staging) dari form → server **running** (<2 menit p95).
+* [ ] Health-check TCP lulus; status `active` konsisten.
+* [ ] Webhook **leave** menjadwalkan hapus +4h dan menyimpan `delete_job_id`.
+* [ ] Webhook **join** membatalkan jadwal (job removed) → `active`.
+* [ ] Log tidak mengandung data sensitif (sampling diperiksa).
+* [ ] Alert dasar aktif dan teruji (sengaja gagal 1 job).
+
+### 3.3 Go-Live (pilot → publik terbatas)
+
+* [ ] Load test k6: spike 50 klaim/menit, tidak ada race/korup data.
+* [ ] p95 end-to-end ≤ 120s; p99 ≤ 180s (staging produksi-like).
+* [ ] Rate limit per-IP dan per-JID tervalidasi (tidak false block di NAT).
+* [ ] Prosedur rollback (image tag N-1) diuji.
+* [ ] Dokumen **Keamanan** & **Privasi** disepakati (redaksi log, akses `.env`).
+* [ ] On-call rota & kontak insiden dipublikasikan.
+
+---
+
+## 4) Next steps (saran eksekusi cepat)
+
+1. **Finalize `templates.json`** (termasuk `healthcheck.port`/`portEnv`) – 1 hari.
+2. **Implement pemilih allocation** + uji kegagalan “habis port” – 0.5–1 hari.
+3. **Webhook `join`** + persist `delete_job_id` + cancel job – 1 hari.
+4. **Health-check TCP** di worker + metrik lead time – 1 hari.
+5. **E2E Playwright** + skenario timeout & resume – 1 hari.
+
