@@ -473,7 +473,6 @@ export class PterodactylService {
       throw new Error(`Failed to unsuspend server ${serverId}`);
     }
   }
-  }
 }
 
 export const pterodactylService = new PterodactylService();
