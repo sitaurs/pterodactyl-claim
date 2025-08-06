@@ -7,7 +7,7 @@ echo "📦 Installing @hapi/boom..."
 pnpm add "@hapi/boom@^10.0.1"
 
 echo "📦 Installing @types/hapi__boom..."
-pnpm add "@types/hapi__boom@^9.0.4" --save-dev
+pnpm add "@types/hapi__boom@^9.0.1" --save-dev
 
 cd ../..
 
