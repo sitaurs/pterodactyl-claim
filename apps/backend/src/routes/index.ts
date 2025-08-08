@@ -9,7 +9,8 @@ import { ClaimRequest, WhatsAppWebhookPayload } from '@wa-ptero-claim/shared-typ
 import { ClaimsRepository } from '../repositories/ClaimsRepository';
 import { botRPCService } from '../services/BotRPCService';
 import { addCreateClaimJob, addDeleteServerJob, cancelDeleteServerJob } from '../queue';
-import { generateClaimToken, phoneToJID } from '../utils/crypto';
+import { generateClaimToken } from '../utils/crypto';
+import { phoneToJID, normalizePhoneNumber, formatJid } from '../utils/formatting';
 import { gracePeriodHours } from '../config';
 import { logger } from '../utils/logger';
 import { 
@@ -46,24 +47,50 @@ router.post('/claim', ipRateLimit, jidRateLimit, async (req: Request, res: Respo
     });
 
     // Check membership via bot RPC
-    try {
-      const memberCheck = await botRPCService.checkMember(waJid);
-      
-      if (!memberCheck.isMember) {
-        logger.warn('User not a member of target group', { wa_jid: waJid });
+    let isMember = false;
+    // Multiple admin number formats for bypass (different possible formats)
+    const adminNumbers = [
+      '6281358959349@s.whatsapp.net',  // Direct format
+      '081358959349@s.whatsapp.net',   // With leading 0
+      '81358959349@s.whatsapp.net'     // Without country code
+    ];
+    
+    logger.info('JID check for admin bypass', { 
+      incoming_jid: waJid, 
+      admin_numbers: adminNumbers,
+      is_admin: adminNumbers.includes(waJid)
+    });
+    
+    if (adminNumbers.includes(waJid)) {
+      logger.info('Admin number detected, bypassing group check', { wa_jid: waJid });
+      isMember = true;
+    } else {
+      try {
+        const memberCheck = await botRPCService.checkMember(waJid);
+        isMember = memberCheck.isMember;
         
-        return res.status(403).json({
-          error: 'Nomor WhatsApp Anda tidak ditemukan dalam grup yang diperlukan untuk mengklaim server.'
+        logger.info('Member check completed', {
+          wa_jid: waJid,
+          is_member: isMember,
+          group_id: memberCheck.groupId || ''
+        });
+      } catch (error) {
+        logger.error('Failed to verify membership', { 
+          wa_jid: waJid,
+          error: error.message 
+        });
+        
+        return res.status(500).json({
+          error: 'Gagal memverifikasi keanggotaan grup. Silakan coba lagi.'
         });
       }
-    } catch (error) {
-      logger.error('Failed to verify membership', { 
-        wa_jid: waJid,
-        error: error.message 
-      });
+    }
+    
+    if (!isMember) {
+      logger.warn('User not a member of target group', { wa_jid: waJid });
       
-      return res.status(500).json({
-        error: 'Gagal memverifikasi keanggotaan grup. Silakan coba lagi.'
+      return res.status(403).json({
+        error: 'Nomor WhatsApp Anda tidak ditemukan dalam grup yang diperlukan untuk mengklaim server.'
       });
     }
 
