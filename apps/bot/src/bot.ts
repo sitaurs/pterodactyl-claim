@@ -22,6 +22,8 @@ export class WhatsAppBot {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private readonly authPath: string;
+  private qrGeneratedAt: number = 0;
+  private readonly qrCooldownMs = 10000; // 10 seconds cooldown between QR generations
   
   constructor(private config: BotConfig) {
     // Use data directory from config or default to ./data/auth_info
@@ -52,14 +54,15 @@ export class WhatsAppBot {
         printQRInTerminal: false, // Disable deprecated QR terminal
         logger: silentLogger,
         browser: ['ptero-claim-bot', 'Desktop', '1.0.0'],
-        connectTimeoutMs: 60_000,
+        connectTimeoutMs: 120_000, // Increase timeout to 2 minutes
         defaultQueryTimeoutMs: 60_000,
         keepAliveIntervalMs: 30_000,
-        retryRequestDelayMs: 250,
+        retryRequestDelayMs: 1000, // Increase retry delay
         markOnlineOnConnect: true,
         fireInitQueries: true,
         generateHighQualityLinkPreview: false,
         syncFullHistory: false,
+        qrTimeout: 120_000, // 2 minutes for QR scan
         // Add getMessage for handling missing messages
         getMessage: async (key) => {
           return {
@@ -85,10 +88,18 @@ export class WhatsAppBot {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
+        const now = Date.now();
+        if (now - this.qrGeneratedAt < this.qrCooldownMs) {
+          logger.info('⏳ QR generation cooldown active, skipping duplicate QR');
+          return;
+        }
+        
+        this.qrGeneratedAt = now;
         logger.info('📱 QR Code generated, scan with WhatsApp:');
         console.log('\n📱 QR Code untuk scan WhatsApp Bot:');
+        console.log('⏰ QR Code akan aktif selama 2 menit, silakan scan dengan WhatsApp Anda');
         qrcode.generate(qr, { small: true });
-        console.log('\n');
+        console.log('\n⚠️  PENTING: Jangan restart bot saat QR code muncul, tunggu hingga terscan atau expired\n');
       }
 
       if (connection === 'close') {
@@ -102,17 +113,26 @@ export class WhatsAppBot {
           reconnectAttempts: this.reconnectAttempts
         });
 
-        // Only reconnect if not logged out or session expired
-        if (shouldReconnect && statusCode !== DisconnectReason.forbidden && this.reconnectAttempts < this.maxReconnectAttempts) {
+        // Handle different disconnect reasons
+        if (statusCode === DisconnectReason.loggedOut) {
+          logger.warn('🔐 Session expired, need to scan QR again');
+          this.isConnected = false;
+          this.reconnectAttempts = 0;
+          // Restart immediately to show new QR
+          logger.info('🔄 Restarting to generate new QR code...');
+          setTimeout(() => this.initialize(), 2000);
+        } else if (statusCode === DisconnectReason.restartRequired) {
+          logger.info('🔄 Restart required by WhatsApp, reconnecting...');
+          setTimeout(() => this.initialize(), 3000);
+        } else if (statusCode === DisconnectReason.connectionReplaced) {
+          logger.warn('🔄 Connection replaced by another session');
+          this.isConnected = false;
+        } else if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
           logger.info(`🔄 Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
           setTimeout(() => this.initialize(), 5000);
-        } else if (statusCode === DisconnectReason.loggedOut) {
-          logger.error('❌ Session expired or logged out, please scan QR code again');
-          this.isConnected = false;
-          // Don't auto-retry if logged out, wait for manual restart
         } else {
-          logger.error('❌ Max reconnection attempts reached');
+          logger.error('❌ Max reconnection attempts reached or connection forbidden');
           this.isConnected = false;
         }
       } else if (connection === 'open') {
@@ -122,6 +142,8 @@ export class WhatsAppBot {
         
         // Verify target group exists
         await this.verifyTargetGroup();
+      } else if (connection === 'connecting') {
+        logger.info('🔄 Connecting to WhatsApp...');
       }
     });
 
@@ -337,10 +359,12 @@ export class WhatsAppBot {
     try {
       this.isConnected = false;
       if (this.socket) {
-        logger.info('🔌 Disconnecting WhatsApp socket...');
-        // Don't logout, just close the socket to preserve session
-        this.socket.end(undefined);
+        logger.info('🔌 Disconnecting WhatsApp socket (preserving session)...');
+        // Don't use logout() to preserve session credentials
+        // Just close the socket connection
+        await this.socket.end(undefined);
         this.socket = null;
+        logger.info('✅ Socket disconnected, session preserved for next restart');
       }
     } catch (error) {
       logger.error('❌ Error during disconnect:', { 
