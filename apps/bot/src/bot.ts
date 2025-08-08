@@ -21,16 +21,19 @@ export class WhatsAppBot {
   private isConnected = false;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
-  private readonly authStateDir = path.join(process.cwd(), 'auth_info');
+  private readonly authPath: string;
   
-  constructor(private config: BotConfig) {}
+  constructor(private config: BotConfig) {
+    // Use data directory from config or default to ./data/auth_info
+    this.authPath = path.join(config.DATA_DIR || './data', 'auth_info');
+  }
 
   async initialize(): Promise<void> {
     try {
       logger.info('🔄 Initializing WhatsApp connection...');
       
       // Load auth state
-      const { state, saveCreds } = await useMultiFileAuthState(this.authStateDir);
+      const { state, saveCreds } = await useMultiFileAuthState(this.authPath);
       
       // Create WhatsApp socket
       const silentLogger: any = {
@@ -46,8 +49,23 @@ export class WhatsAppBot {
 
       this.socket = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
-        logger: silentLogger
+        printQRInTerminal: false, // Disable deprecated QR terminal
+        logger: silentLogger,
+        browser: ['ptero-claim-bot', 'Desktop', '1.0.0'],
+        connectTimeoutMs: 60_000,
+        defaultQueryTimeoutMs: 60_000,
+        keepAliveIntervalMs: 30_000,
+        retryRequestDelayMs: 250,
+        markOnlineOnConnect: true,
+        fireInitQueries: true,
+        generateHighQualityLinkPreview: false,
+        syncFullHistory: false,
+        // Add getMessage for handling missing messages
+        getMessage: async (key) => {
+          return {
+            conversation: "Hello, this is a claim bot message"
+          }
+        }
       });
 
       // Setup event handlers
@@ -68,20 +86,33 @@ export class WhatsAppBot {
 
       if (qr) {
         logger.info('📱 QR Code generated, scan with WhatsApp:');
+        console.log('\n📱 QR Code untuk scan WhatsApp Bot:');
         qrcode.generate(qr, { small: true });
+        console.log('\n');
       }
 
       if (connection === 'close') {
         const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
         
-        logger.warn('🔌 Connection closed due to:', lastDisconnect?.error);
-        
-        if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+        logger.warn('🔌 Connection closed', { 
+          statusCode,
+          shouldReconnect,
+          reason: lastDisconnect?.error?.message,
+          reconnectAttempts: this.reconnectAttempts
+        });
+
+        // Only reconnect if not logged out or session expired
+        if (shouldReconnect && statusCode !== DisconnectReason.forbidden && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
           logger.info(`🔄 Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
           setTimeout(() => this.initialize(), 5000);
+        } else if (statusCode === DisconnectReason.loggedOut) {
+          logger.error('❌ Session expired or logged out, please scan QR code again');
+          this.isConnected = false;
+          // Don't auto-retry if logged out, wait for manual restart
         } else {
-          logger.error('❌ Max reconnection attempts reached or logged out');
+          logger.error('❌ Max reconnection attempts reached');
           this.isConnected = false;
         }
       } else if (connection === 'open') {
@@ -303,11 +334,18 @@ export class WhatsAppBot {
   }
 
   async disconnect(): Promise<void> {
-    if (this.socket) {
-      logger.info('🔌 Disconnecting WhatsApp socket...');
-      await this.socket.logout();
-      this.socket = null;
+    try {
       this.isConnected = false;
+      if (this.socket) {
+        logger.info('🔌 Disconnecting WhatsApp socket...');
+        // Don't logout, just close the socket to preserve session
+        this.socket.end(undefined);
+        this.socket = null;
+      }
+    } catch (error) {
+      logger.error('❌ Error during disconnect:', { 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }
 

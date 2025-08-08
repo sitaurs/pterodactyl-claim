@@ -250,6 +250,7 @@ export interface BotConfig {
   BACKEND_WEBHOOK_URL: string;
   INTERNAL_SECRET: string;
   RPC_PORT: number;
+  DATA_DIR?: string; // Optional data directory for auth storage
 }
 
 export interface FrontendConfig {

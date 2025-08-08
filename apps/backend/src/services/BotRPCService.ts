@@ -5,6 +5,8 @@ import { logger } from '../utils/logger';
 
 export class BotRPCService {
   private client: AxiosInstance;
+  private maxRetries: number = 3;
+  private retryDelay: number = 1000; // 1 second
   
   constructor() {
     // Bot RPC runs on localhost with internal port
@@ -12,7 +14,7 @@ export class BotRPCService {
     
     this.client = axios.create({
       baseURL: botRPCUrl,
-      timeout: 10000, // 10 second timeout for bot operations
+      timeout: 15000, // Increased timeout to 15 seconds
       headers: {
         'X-Internal-Secret': config.INTERNAL_SECRET,
         'Content-Type': 'application/json'
@@ -20,45 +22,70 @@ export class BotRPCService {
     });
   }
 
-  // Check if user is member of target group
+  // Check if user is member of target group with retry logic
   async checkMember(waJid: string): Promise<CheckMemberResponse> {
-    try {
-      const request: CheckMemberRequest = { wa_jid: waJid };
-      
-      logger.debug('Checking member status via bot RPC', { wa_jid: waJid });
-      
-      const response = await this.client.post('/check-member', request);
-      const result = response.data as CheckMemberResponse;
-      
-      logger.info('Member check completed', { 
-        wa_jid: waJid,
-        is_member: result.isMember,
-        group_id: result.groupId 
-      });
-      
-      return result;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status ?? 0;
-        const message = error.response?.data?.error || error.message;
+    let lastError: Error;
+    
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        const request: CheckMemberRequest = { wa_jid: waJid };
         
-        logger.error('Bot RPC member check failed', {
+        logger.debug(`Checking member status via bot RPC (attempt ${attempt}/${this.maxRetries})`, { wa_jid: waJid });
+        
+        const response = await this.client.post('/check-member', request);
+        const result = response.data as CheckMemberResponse;
+        
+        logger.info('Member check completed', { 
           wa_jid: waJid,
-          status,
-          message,
-          error: error.message
+          is_member: result.isMember,
+          group_id: result.groupId,
+          attempt
         });
         
-        if (status === 404) {
-          throw new Error('BOT_TIMEOUT: Bot service unavailable');
-        } else if (status >= 500) {
-          throw new Error('BOT_TIMEOUT: Bot service error');
+        return result;
+      } catch (error) {
+        lastError = error as Error;
+        
+        if (axios.isAxiosError(error)) {
+          const status = error.response?.status ?? 0;
+          const message = error.response?.data?.error || error.message;
+          
+          logger.warn(`Bot RPC member check failed (attempt ${attempt}/${this.maxRetries})`, {
+            wa_jid: waJid,
+            status,
+            message,
+            error: error.message
+          });
+          
+          // Don't retry on certain error codes
+          if (status === 403 || status === 401) {
+            throw new Error('BOT_AUTH_ERROR: Authentication failed');
+          }
+          
+          // If this is the last attempt, throw the error
+          if (attempt === this.maxRetries) {
+            if (status === 404 || status === 0) {
+              throw new Error('BOT_TIMEOUT: Bot service unavailable');
+            } else if (status >= 500) {
+              throw new Error('BOT_TIMEOUT: Bot service error');
+            }
+          }
+        } else {
+          logger.warn(`Unexpected error in member check (attempt ${attempt}/${this.maxRetries})`, { 
+            error: error.message, 
+            wa_jid: waJid 
+          });
+        }
+        
+        // Wait before retry (except on last attempt)
+        if (attempt < this.maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, this.retryDelay * attempt));
         }
       }
-      
-      logger.error('Unexpected error in member check', { error, wa_jid: waJid });
-      throw new Error('BOT_TIMEOUT: Failed to verify membership');
     }
+    
+    logger.error('All member check attempts failed', { wa_jid: waJid, maxRetries: this.maxRetries });
+    throw new Error('BOT_TIMEOUT: Failed to verify membership after retries');
   }
 
   // Send notification message to user
